@@ -139,7 +139,7 @@ namespace Il2CppDumper
                     var nso = new NSO(il2CppMemory);
                     il2Cpp = nso.UnCompress();
                     break;
-                case 0x905A4D: //PE
+                case uint peMagic when (peMagic & 0xFFFF) == 0x5A4D: //PE
                     il2Cpp = new PE(il2CppMemory);
                     break;
                 case 0x464c457f: //ELF
