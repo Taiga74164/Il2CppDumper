@@ -482,10 +482,14 @@ namespace Il2CppDumper.Tests
         [Fact]
         public void ImportedEnumReferences_AndOrdinaryEnumDefinitions_RemainSupported()
         {
+            var resolver = new MyAssemblyResolver();
+
             using var defAssembly = AssemblyDefinition.CreateAssembly(
                 new AssemblyNameDefinition("DefAssembly", new Version(1, 0)),
                 "DefAssembly.dll",
-                ModuleKind.Dll);
+                new ModuleParameters { Kind = ModuleKind.Dll, AssemblyResolver = resolver });
+
+            resolver.Register(defAssembly);
 
             var defModule = defAssembly.MainModule;
             var enumDef = new TypeDefinition("Exported", "SharedEnum", TypeAttributes.Public | TypeAttributes.Sealed, defModule.ImportReference(typeof(Enum)));
@@ -504,11 +508,14 @@ namespace Il2CppDumper.Tests
             var optMod = new OptionalModifierType(modType, enumDef);
             Assert.True(DummyAssemblyGenerator.CanWriteConstant(optMod));
 
-            // 3. Imported enum reference in consumer assembly
+            // 3. Imported enum reference in consumer assembly with registered resolver
             using var consumerAssembly = AssemblyDefinition.CreateAssembly(
                 new AssemblyNameDefinition("ConsumerAssembly", new Version(1, 0)),
                 "ConsumerAssembly.dll",
-                ModuleKind.Dll);
+                new ModuleParameters { Kind = ModuleKind.Dll, AssemblyResolver = resolver });
+
+            resolver.Register(consumerAssembly);
+
             var consumerModule = consumerAssembly.MainModule;
             var importedRef = consumerModule.ImportReference(enumDef);
 
@@ -517,13 +524,61 @@ namespace Il2CppDumper.Tests
             var consumerField = new FieldDefinition("ConsumerF", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, importedRef);
             consumerHolder.Fields.Add(consumerField);
 
-            bool canWrite = DummyAssemblyGenerator.CanWriteConstant(importedRef);
-            DummyAssemblyGenerator.TrySetConstant(consumerField, importedRef, 42);
+            Assert.True(DummyAssemblyGenerator.CanWriteConstant(importedRef), "CanWriteConstant must be true for resolvable imported enum reference.");
+            Assert.True(DummyAssemblyGenerator.TrySetConstant(consumerField, importedRef, 42), "TrySetConstant must succeed for resolvable imported enum reference.");
+            Assert.True(consumerField.HasConstant);
+            Assert.Equal(42, consumerField.Constant);
+            Assert.IsType<int>(consumerField.Constant);
+
             DummyAssemblyExporter.SanitizeConstants(consumerAssembly);
+
+            Assert.True(consumerField.HasConstant, "Sanitizer must retain valid imported enum constant.");
+            Assert.Equal(42, consumerField.Constant);
+            Assert.IsType<int>(consumerField.Constant);
 
             using var stream = new MemoryStream();
             consumerAssembly.Write(stream);
             Assert.True(stream.Length > 0);
+
+            stream.Position = 0;
+            var readParameters = new ReaderParameters { AssemblyResolver = resolver };
+            using var read = AssemblyDefinition.ReadAssembly(stream, readParameters);
+            var readHolder = read.MainModule.GetType("Consumer.Holder");
+            var readField = readHolder.Fields[0];
+            Assert.True(readField.HasConstant);
+            Assert.Equal(42, readField.Constant);
+            Assert.IsType<int>(readField.Constant);
+        }
+
+        [Fact]
+        public void GenericParameter_IsRejectedForConstants()
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("GenericParamTest", new Version(1, 0)),
+                "GenericParamTest.dll",
+                ModuleKind.Dll);
+
+            var m = assembly.MainModule;
+            var holder = new TypeDefinition("Test", "GenericHolder", TypeAttributes.Public, m.TypeSystem.Object);
+            m.Types.Add(holder);
+
+            var genericParam = new GenericParameter("T", holder);
+            holder.GenericParameters.Add(genericParam);
+
+            var field = new FieldDefinition("GenericField", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, genericParam);
+            holder.Fields.Add(field);
+
+            Assert.False(DummyAssemblyGenerator.CanWriteConstant(genericParam));
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, genericParam, 42));
+
+            field.Constant = 42;
+            field.Attributes |= FieldAttributes.HasDefault;
+
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+
+            Assert.False(field.HasConstant);
+            Assert.Null(field.Constant);
+            Assert.False(field.Attributes.HasFlag(FieldAttributes.HasDefault));
         }
 
         [Fact]
