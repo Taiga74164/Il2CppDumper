@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Il2CppDumper
@@ -68,31 +68,55 @@ namespace Il2CppDumper
                 throw new ArgumentNullException(nameof(stringPattern));
             }
 
-            var pattern = stringPattern.Split(' ');
+            var patternTokens = stringPattern.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
             int valueLength = source.Length;
-            int patternLength = pattern.Length;
+            int patternLength = patternTokens.Length;
 
             if (valueLength == 0 || patternLength == 0 || patternLength > valueLength)
             {
                 yield break;
             }
 
+            var pattern = new int[patternLength];
+            for (int i = 0; i < patternLength; i++)
+            {
+                if (patternTokens[i] == "?" || patternTokens[i] == "??")
+                {
+                    pattern[i] = -1;
+                }
+                else
+                {
+                    pattern[i] = Convert.ToInt32(patternTokens[i], 16);
+                }
+            }
+
             var badCharacters = new int[256];
+            var lastPatternByte = patternLength - 1;
+
+            int defaultShift = patternLength;
+            for (int i = 0; i < lastPatternByte; i++)
+            {
+                if (pattern[i] == -1)
+                {
+                    defaultShift = lastPatternByte - i;
+                }
+            }
 
             for (var i = 0; i < 256; i++)
             {
-                badCharacters[i] = patternLength;
+                badCharacters[i] = defaultShift;
             }
-
-            var lastPatternByte = patternLength - 1;
 
             for (int i = 0; i < lastPatternByte; i++)
             {
-                if (pattern[i] != "?")
+                if (pattern[i] != -1)
                 {
-                    var result = Convert.ToInt32(pattern[i], 16);
-                    badCharacters[result] = lastPatternByte - i;
+                    var shift = lastPatternByte - i;
+                    if (shift < badCharacters[pattern[i]])
+                    {
+                        badCharacters[pattern[i]] = shift;
+                    }
                 }
             }
 
@@ -113,14 +137,9 @@ namespace Il2CppDumper
             }
         }
 
-        private static bool CheckEqual(byte[] source, string[] pattern, int index, int i)
+        private static bool CheckEqual(byte[] source, int[] pattern, int index, int i)
         {
-            if (pattern[i] != "?")
-            {
-                var result = Convert.ToInt32(pattern[i], 16);
-                return source[index + i] == result;
-            }
-            return true;
+            return pattern[i] == -1 || source[index + i] == pattern[i];
         }
     }
 }
