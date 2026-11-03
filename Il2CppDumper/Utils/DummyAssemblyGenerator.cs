@@ -368,8 +368,12 @@ namespace Il2CppDumper
                         if (propertyDef.set >= 0)
                         {
                             SetMethod = methodDefinitionDic[metadata.GetMethodIndexFromTypeDefinition(index, propertyDef.set)];
-                            propertyType ??= SetMethod.Parameters[0].ParameterType;
+                            if (SetMethod.Parameters.Count > 0)
+                            {
+                                propertyType ??= SetMethod.Parameters[SetMethod.Parameters.Count - 1].ParameterType;
+                            }
                         }
+                        propertyType ??= typeDefinition.Module.TypeSystem.Void;
                         var propertyDefinition = new PropertyDefinition(propertyName, (PropertyAttributes)propertyDef.attrs, propertyType)
                         {
                             GetMethod = GetMethod,
