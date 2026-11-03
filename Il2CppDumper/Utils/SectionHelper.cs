@@ -213,20 +213,24 @@ namespace Il2CppDumper
             foreach (var section in data)
             {
                 il2Cpp.Position = section.offset;
-                while (il2Cpp.Position < section.offsetEnd)
+                var maxOffset = Math.Min(section.offsetEnd, il2Cpp.Length);
+                while (il2Cpp.Position + il2Cpp.PointerSize <= maxOffset)
                 {
                     var addr = il2Cpp.Position;
                     if (il2Cpp.ReadIntPtr() == methodCount)
                     {
                         try
                         {
-                            var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
-                            if (CheckPointerRangeDataRa(pointer))
+                            if (il2Cpp.Position + il2Cpp.PointerSize <= maxOffset)
                             {
-                                var pointers = il2Cpp.ReadClassArray<ulong>(pointer, methodCount);
-                                if (CheckPointerRangeExecVa(pointers))
+                                var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
+                                if (CheckPointerRangeDataRa(pointer))
                                 {
-                                    return addr - section.offset + section.address;
+                                    var pointers = il2Cpp.ReadClassArray<ulong>(pointer, methodCount);
+                                    if (CheckPointerRangeExecVa(pointers))
+                                    {
+                                        return addr - section.offset + section.address;
+                                    }
                                 }
                             }
                         }
@@ -247,22 +251,25 @@ namespace Il2CppDumper
             foreach (var section in data)
             {
                 il2Cpp.Position = section.offset;
-                var end = Math.Min(section.offsetEnd, il2Cpp.Length) - il2Cpp.PointerSize;
-                while (il2Cpp.Position < end)
+                var maxOffset = Math.Min(section.offsetEnd, il2Cpp.Length);
+                while (il2Cpp.Position + il2Cpp.PointerSize <= maxOffset)
                 {
                     var addr = il2Cpp.Position;
                     if (il2Cpp.ReadIntPtr() == typeDefinitionsCount)
                     {
                         try
                         {
-                            il2Cpp.Position += il2Cpp.PointerSize * 2;
-                            var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
-                            if (CheckPointerRangeDataRa(pointer))
+                            if (il2Cpp.Position + il2Cpp.PointerSize * 3 <= maxOffset)
                             {
-                                var pointers = il2Cpp.ReadClassArray<ulong>(pointer, metadataUsagesCount);
-                                if (CheckPointerRangeBssVa(pointers))
+                                il2Cpp.Position += il2Cpp.PointerSize * 2;
+                                var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
+                                if (CheckPointerRangeDataRa(pointer))
                                 {
-                                    return addr - il2Cpp.PointerSize * 12 - section.offset + section.address;
+                                    var pointers = il2Cpp.ReadClassArray<ulong>(pointer, metadataUsagesCount);
+                                    if (CheckPointerRangeBssVa(pointers))
+                                    {
+                                        return addr - il2Cpp.PointerSize * 12 - section.offset + section.address;
+                                    }
                                 }
                             }
                         }
@@ -283,40 +290,46 @@ namespace Il2CppDumper
             foreach (var section in data)
             {
                 il2Cpp.Position = section.offset;
-                var end = Math.Min(section.offsetEnd, il2Cpp.Length) - il2Cpp.PointerSize;
-                while (il2Cpp.Position < end)
+                var maxOffset = Math.Min(section.offsetEnd, il2Cpp.Length);
+                while (il2Cpp.Position + il2Cpp.PointerSize <= maxOffset)
                 {
                     var addr = il2Cpp.Position;
                     if (il2Cpp.ReadIntPtr() == typeDefinitionsCount)
                     {
-                        il2Cpp.Position += il2Cpp.PointerSize;
-                        if (il2Cpp.ReadIntPtr() == typeDefinitionsCount)
+                        if (il2Cpp.Position + il2Cpp.PointerSize * 2 <= maxOffset)
                         {
-                            try
+                            il2Cpp.Position += il2Cpp.PointerSize;
+                            if (il2Cpp.ReadIntPtr() == typeDefinitionsCount)
                             {
-                                var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
-                                if (CheckPointerRangeDataRa(pointer))
+                                try
                                 {
-                                    var pointers = il2Cpp.ReadClassArray<ulong>(pointer, typeDefinitionsCount);
-                                    bool flag;
-                                    if (pointerInExec)
+                                    if (il2Cpp.Position + il2Cpp.PointerSize <= maxOffset)
                                     {
-                                        flag = CheckPointerRangeExecVa(pointers);
-                                    }
-                                    else
-                                    {
-                                        flag = CheckPointerRangeDataVa(pointers);
-                                    }
-                                    if (flag)
-                                    {
-                                        var fieldOffsetsCountOffset = il2Cpp.Version >= 108 ? 6ul : 10ul;
-                                        return addr - il2Cpp.PointerSize * fieldOffsetsCountOffset - section.offset + section.address;
+                                        var pointer = il2Cpp.MapVATR(il2Cpp.ReadUIntPtr());
+                                        if (CheckPointerRangeDataRa(pointer))
+                                        {
+                                            var pointers = il2Cpp.ReadClassArray<ulong>(pointer, typeDefinitionsCount);
+                                            bool flag;
+                                            if (pointerInExec)
+                                            {
+                                                flag = CheckPointerRangeExecVa(pointers);
+                                            }
+                                            else
+                                            {
+                                                flag = CheckPointerRangeDataVa(pointers);
+                                            }
+                                            if (flag)
+                                            {
+                                                var fieldOffsetsCountOffset = il2Cpp.Version >= 108 ? 6ul : 10ul;
+                                                return addr - il2Cpp.PointerSize * fieldOffsetsCountOffset - section.offset + section.address;
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                            catch
-                            {
-                                // ignored
+                                catch
+                                {
+                                    // ignored
+                                }
                             }
                         }
                     }
@@ -363,8 +376,13 @@ namespace Il2CppDumper
         {
             foreach (var sec in secs)
             {
+                var maxOffset = Math.Min(sec.offsetEnd, il2Cpp.Length);
+                if (maxOffset <= sec.offset)
+                {
+                    continue;
+                }
                 il2Cpp.Position = sec.offset;
-                var buff = il2Cpp.ReadBytes((int)(sec.offsetEnd - sec.offset));
+                var buff = il2Cpp.ReadBytes((int)(maxOffset - sec.offset));
                 foreach (var index in buff.Search(featureBytes))
                 {
                     var dllva = (ulong)index + sec.address;
@@ -417,8 +435,8 @@ namespace Il2CppDumper
             foreach (var dataSec in data)
             {
                 var position = dataSec.offset;
-                var end = Math.Min(dataSec.offsetEnd, il2Cpp.Length) - il2Cpp.PointerSize;
-                while (position < end)
+                var maxOffset = Math.Min(dataSec.offsetEnd, il2Cpp.Length);
+                while (position + il2Cpp.PointerSize <= maxOffset)
                 {
                     il2Cpp.Position = position;
                     if (il2Cpp.ReadUIntPtr() == addr)
