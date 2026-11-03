@@ -430,13 +430,26 @@ namespace Il2CppDumper
             return 0ul;
         }
 
-        private IEnumerable<ulong> FindReference(ulong addr)
+        internal IEnumerable<ulong> FindReference(ulong addr)
         {
+            if (data == null)
+            {
+                yield break;
+            }
             foreach (var dataSec in data)
             {
-                var position = dataSec.offset;
+                if (dataSec == null)
+                {
+                    continue;
+                }
                 var maxOffset = Math.Min(dataSec.offsetEnd, il2Cpp.Length);
-                while (position + il2Cpp.PointerSize <= maxOffset)
+                if (dataSec.offset >= maxOffset || maxOffset - dataSec.offset < il2Cpp.PointerSize)
+                {
+                    continue;
+                }
+                var position = dataSec.offset;
+                var end = maxOffset - il2Cpp.PointerSize;
+                while (position <= end)
                 {
                     il2Cpp.Position = position;
                     if (il2Cpp.ReadUIntPtr() == addr)
