@@ -354,6 +354,64 @@ namespace Il2CppDumper.Tests
             Assert.False(memory.PlusSearch(1, 1, 1));
         }
 
+        [Fact]
+        public void SectionHelper_FindCodeRegistration_FinalPointerAtExactExtent_FindsRegistration()
+        {
+            // Case from Bot Review: Metadata v27, imageCount = 1, memory initialized [1024, 1204)
+            // Final reference pointer at 1200 occupies the exact final 4 bytes of extent (1204)
+            var data = new byte[180]; // initialized range [1024, 1204)
+            System.Text.Encoding.ASCII.GetBytes("mscorlib.dll\0").CopyTo(data, 0);
+            BitConverter.GetBytes(1024u).CopyTo(data, 1056 - 1024);
+            BitConverter.GetBytes(1056u).CopyTo(data, 1088 - 1024);
+            BitConverter.GetBytes(1u).CopyTo(data, 1196 - 1024);
+            BitConverter.GetBytes(1088u).CopyTo(data, 1200 - 1024);
+
+            var segment = (offset: 1024u, data: data);
+            var wasmBytes = BuildWasmModuleWithCustomPayload(1102, segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(1204ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+
+            var codeReg = helper.FindCodeRegistration();
+            Assert.Equal(1148ul, codeReg);
+        }
+
+        [Fact]
+        public void SectionHelper_FindCodeRegistration_FinalPointerWithPartialTail_FindsRegistrationWithoutIncompleteRead()
+        {
+            // Extent 1206 (182 bytes in segment): final reference at 1200..1203 followed by 2 extra tail bytes (1204..1205)
+            // Ensures partial tail bytes are preserved without attempting an incomplete 4-byte read
+            var data = new byte[182]; // initialized range [1024, 1206)
+            System.Text.Encoding.ASCII.GetBytes("mscorlib.dll\0").CopyTo(data, 0);
+            BitConverter.GetBytes(1024u).CopyTo(data, 1056 - 1024);
+            BitConverter.GetBytes(1056u).CopyTo(data, 1088 - 1024);
+            BitConverter.GetBytes(1u).CopyTo(data, 1196 - 1024);
+            BitConverter.GetBytes(1088u).CopyTo(data, 1200 - 1024);
+            data[180] = 0xDE;
+            data[181] = 0xAD;
+
+            var segment = (offset: 1024u, data: data);
+            var wasmBytes = BuildWasmModuleWithCustomPayload(1102, segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(1206ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+
+            var codeReg = helper.FindCodeRegistration();
+            Assert.Equal(1148ul, codeReg);
+        }
+
         private static byte[] BuildWasmModuleWithCustomPayload(int customSectionSize, params (uint offset, byte[] data)[] segments)
         {
             using var ms = new MemoryStream();

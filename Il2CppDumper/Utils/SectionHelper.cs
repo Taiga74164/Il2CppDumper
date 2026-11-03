@@ -435,8 +435,8 @@ namespace Il2CppDumper
             foreach (var dataSec in data)
             {
                 var position = dataSec.offset;
-                var end = Math.Min(dataSec.offsetEnd, il2Cpp.Length) - il2Cpp.PointerSize;
-                while (position < end)
+                var maxOffset = Math.Min(dataSec.offsetEnd, il2Cpp.Length);
+                while (position + il2Cpp.PointerSize <= maxOffset)
                 {
                     il2Cpp.Position = position;
                     if (il2Cpp.ReadUIntPtr() == addr)
