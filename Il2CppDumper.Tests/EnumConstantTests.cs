@@ -391,40 +391,77 @@ namespace Il2CppDumper.Tests
         }
 
         [Theory]
-        [InlineData("array")]
-        [InlineData("pointer")]
-        [InlineData("byref")]
-        public void TypeWrappers_ArraysPointersByRefs_RejectScalarConstants(string wrapper)
+        [InlineData("array", false)]
+        [InlineData("pointer", false)]
+        [InlineData("byref", false)]
+        [InlineData("array", true)]
+        [InlineData("pointer", true)]
+        [InlineData("byref", true)]
+        [InlineData("optional_modifier_pointer", true)]
+        [InlineData("required_modifier_array", true)]
+        public void TypeWrappers_ArraysPointersByRefs_RejectScalarConstants(string wrapper, bool isEnum)
         {
             using var assembly = AssemblyDefinition.CreateAssembly(
-                new AssemblyNameDefinition("WrapperTest_" + wrapper, new Version(1, 0)),
+                new AssemblyNameDefinition("WrapperTest_" + wrapper + "_" + (isEnum ? "enum" : "primitive"), new Version(1, 0)),
                 "WrapperTest.dll",
                 ModuleKind.Dll);
 
             var m = assembly.MainModule;
+            TypeReference baseType;
+            if (isEnum)
+            {
+                var enumTypeDef = new TypeDefinition("Test", "E_" + wrapper, TypeAttributes.Public | TypeAttributes.Sealed, m.ImportReference(typeof(Enum)));
+                m.Types.Add(enumTypeDef);
+                enumTypeDef.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, m.TypeSystem.Int32));
+                baseType = enumTypeDef;
+            }
+            else
+            {
+                baseType = m.TypeSystem.Int32;
+            }
+
+            var modType = m.ImportReference(new TypeReference("System.Runtime.CompilerServices", "IsConst", m, m.TypeSystem.CoreLibrary));
+
             TypeReference target = wrapper switch
             {
-                "array" => new ArrayType(m.TypeSystem.Int32),
-                "pointer" => new PointerType(m.TypeSystem.Int32),
-                _ => new ByReferenceType(m.TypeSystem.Int32)
+                "array" => new ArrayType(baseType),
+                "pointer" => new PointerType(baseType),
+                "byref" => new ByReferenceType(baseType),
+                "optional_modifier_pointer" => new OptionalModifierType(modType, new PointerType(baseType)),
+                "required_modifier_array" => new RequiredModifierType(modType, new ArrayType(baseType)),
+                _ => throw new ArgumentException("Unknown wrapper: " + wrapper)
             };
 
-            var holder = new TypeDefinition("Test", "Holder", TypeAttributes.Public, m.TypeSystem.Object);
+            var holder = new TypeDefinition("Test", "Holder_" + wrapper + "_" + (isEnum ? "enum" : "prim"), TypeAttributes.Public, m.TypeSystem.Object);
             m.Types.Add(holder);
 
-            var field = new FieldDefinition("Invalid", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, target);
+            var field = new FieldDefinition("InvalidField", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, target);
             holder.Fields.Add(field);
 
-            Assert.False(DummyAssemblyGenerator.CanWriteConstant(target), $"CanWriteConstant must be false for {target.FullName}.");
-            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, target, 7), $"TrySetConstant must reject scalar constant for {target.FullName}.");
+            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, m.TypeSystem.Void);
+            holder.Methods.Add(method);
+            var parameter = new ParameterDefinition("InvalidParam", ParameterAttributes.Optional | ParameterAttributes.HasDefault, target);
+            method.Parameters.Add(parameter);
 
-            // Even if an invalid constant was pre-assigned, sanitizer must clear it and assembly serialization must succeed
+            Assert.False(DummyAssemblyGenerator.CanWriteConstant(target), $"CanWriteConstant must be false for {target.FullName}.");
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, target, 7), $"TrySetConstant (field) must reject scalar constant for {target.FullName}.");
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(parameter, target, 7), $"TrySetConstant (parameter) must reject scalar constant for {target.FullName}.");
+
+            // Even if an invalid constant was pre-assigned on field and parameter, sanitizer must clear them and assembly serialization must succeed
             field.Constant = 7;
+            field.Attributes |= FieldAttributes.HasDefault;
+            parameter.Constant = 7;
+            parameter.Attributes |= ParameterAttributes.HasDefault;
+
             DummyAssemblyExporter.SanitizeConstants(assembly);
 
             Assert.False(field.HasConstant);
             Assert.Null(field.Constant);
             Assert.False(field.Attributes.HasFlag(FieldAttributes.HasDefault));
+
+            Assert.False(parameter.HasConstant);
+            Assert.Null(parameter.Constant);
+            Assert.False(parameter.Attributes.HasFlag(ParameterAttributes.HasDefault));
 
             using var stream = new MemoryStream();
             assembly.Write(stream);
@@ -432,9 +469,61 @@ namespace Il2CppDumper.Tests
 
             stream.Position = 0;
             using var read = AssemblyDefinition.ReadAssembly(stream);
-            var readField = read.MainModule.GetType("Test.Holder").Fields[0];
+            var readHolder = read.MainModule.GetType(holder.FullName);
+            var readField = readHolder.Fields[0];
             Assert.False(readField.HasConstant);
             Assert.Null(readField.Constant);
+
+            var readParam = readHolder.Methods[0].Parameters[0];
+            Assert.False(readParam.HasConstant);
+            Assert.Null(readParam.Constant);
+        }
+
+        [Fact]
+        public void ImportedEnumReferences_AndOrdinaryEnumDefinitions_RemainSupported()
+        {
+            using var defAssembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("DefAssembly", new Version(1, 0)),
+                "DefAssembly.dll",
+                ModuleKind.Dll);
+
+            var defModule = defAssembly.MainModule;
+            var enumDef = new TypeDefinition("Exported", "SharedEnum", TypeAttributes.Public | TypeAttributes.Sealed, defModule.ImportReference(typeof(Enum)));
+            defModule.Types.Add(enumDef);
+            enumDef.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, defModule.TypeSystem.Int32));
+
+            // 1. Ordinary enum definition in same assembly
+            var localField = new FieldDefinition("LocalF", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, enumDef);
+            enumDef.Fields.Add(localField);
+            Assert.True(DummyAssemblyGenerator.CanWriteConstant(enumDef));
+            Assert.True(DummyAssemblyGenerator.TrySetConstant(localField, enumDef, 42));
+            Assert.Equal(42, localField.Constant);
+
+            // 2. Modifier around enum definition remains supported
+            var modType = defModule.ImportReference(new TypeReference("System.Runtime.CompilerServices", "IsConst", defModule, defModule.TypeSystem.CoreLibrary));
+            var optMod = new OptionalModifierType(modType, enumDef);
+            Assert.True(DummyAssemblyGenerator.CanWriteConstant(optMod));
+
+            // 3. Imported enum reference in consumer assembly
+            using var consumerAssembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("ConsumerAssembly", new Version(1, 0)),
+                "ConsumerAssembly.dll",
+                ModuleKind.Dll);
+            var consumerModule = consumerAssembly.MainModule;
+            var importedRef = consumerModule.ImportReference(enumDef);
+
+            var consumerHolder = new TypeDefinition("Consumer", "Holder", TypeAttributes.Public, consumerModule.TypeSystem.Object);
+            consumerModule.Types.Add(consumerHolder);
+            var consumerField = new FieldDefinition("ConsumerF", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, importedRef);
+            consumerHolder.Fields.Add(consumerField);
+
+            bool canWrite = DummyAssemblyGenerator.CanWriteConstant(importedRef);
+            DummyAssemblyGenerator.TrySetConstant(consumerField, importedRef, 42);
+            DummyAssemblyExporter.SanitizeConstants(consumerAssembly);
+
+            using var stream = new MemoryStream();
+            consumerAssembly.Write(stream);
+            Assert.True(stream.Length > 0);
         }
 
         [Fact]

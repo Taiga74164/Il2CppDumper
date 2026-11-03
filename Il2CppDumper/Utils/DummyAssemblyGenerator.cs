@@ -531,6 +531,10 @@ namespace Il2CppDumper
                 return false;
             }
             typeReference = UnwrapModifiers(typeReference);
+            if (typeReference is TypeSpecification or GenericParameter)
+            {
+                return false;
+            }
             if (IsPrimitiveConstantType(typeReference.FullName))
             {
                 return true;
@@ -547,7 +551,7 @@ namespace Il2CppDumper
             return typeReference;
         }
 
-        private static bool TryGetEnumUnderlyingType(TypeReference typeReference, out TypeReference underlyingType)
+        internal static bool TryGetEnumUnderlyingType(TypeReference typeReference, out TypeReference underlyingType)
         {
             underlyingType = null;
             if (typeReference == null)
@@ -556,6 +560,11 @@ namespace Il2CppDumper
             }
 
             typeReference = UnwrapModifiers(typeReference);
+
+            if (typeReference is TypeSpecification or GenericParameter)
+            {
+                return false;
+            }
 
             TypeDefinition typeDefinition = null;
             if (typeReference is TypeDefinition td)
@@ -581,7 +590,7 @@ namespace Il2CppDumper
                     if (!field.IsStatic && field.Name == "value__")
                     {
                         var candidate = UnwrapModifiers(field.FieldType);
-                        if (candidate != null && IsEnumUnderlyingType(candidate.FullName))
+                        if (candidate != null && !(candidate is TypeSpecification or GenericParameter) && IsEnumUnderlyingType(candidate.FullName))
                         {
                             underlyingType = candidate;
                             return true;
@@ -614,6 +623,11 @@ namespace Il2CppDumper
             }
 
             typeReference = UnwrapModifiers(typeReference);
+
+            if (typeReference is TypeSpecification or GenericParameter)
+            {
+                return false;
+            }
 
             if (TryGetEnumUnderlyingType(typeReference, out var underlyingType))
             {
