@@ -436,7 +436,7 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
-        public void EdgeCases_NoFields_ReturnsFallbackIfElementTypeIndexValid()
+        public void EdgeCases_NoFields_V35_LeavesElementTypeIndexZeroAndReturnsNull()
         {
             using var m = CreateEmptyMetadata(version: 35);
             m.typeDefs = new[]
@@ -446,7 +446,7 @@ namespace Il2CppDumper.Tests
                     bitfield = 3,
                     fieldStart = 0,
                     field_count = 0,
-                    elementTypeIndex = 1
+                    elementTypeIndex = 0
                 }
             };
             m.fieldDefs = Array.Empty<Il2CppFieldDefinition>();
@@ -460,8 +460,81 @@ namespace Il2CppDumper.Tests
 
             var executor = new Il2CppExecutor(m, il);
             var result = executor.GetEnumUnderlyingType(m.typeDefs[0]);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void EdgeCases_NoFields_PreV35_UsesElementTypeIndexWhenValid()
+        {
+            using var m = CreateEmptyMetadata(version: 29);
+            m.typeDefs = new[]
+            {
+                new Il2CppTypeDefinition
+                {
+                    bitfield = 3,
+                    fieldStart = 0,
+                    field_count = 0,
+                    elementTypeIndex = 1
+                }
+            };
+            m.fieldDefs = Array.Empty<Il2CppFieldDefinition>();
+
+            using var il = CreateMemory(version: 29);
+            il.types = new[]
+            {
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4 },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_U1 }
+            };
+
+            var executor = new Il2CppExecutor(m, il);
+            var result = executor.GetEnumUnderlyingType(m.typeDefs[0]);
             Assert.NotNull(result);
             Assert.Same(il.types[1], result);
+        }
+
+        [Fact]
+        public void EnumWithOnlyStaticLiteralFields_V35_FailsSafelyAndReturnsNull()
+        {
+            using var m = CreateEmptyMetadata(version: 35);
+            WriteString(m, 10, "OptionA");
+            WriteString(m, 20, "OptionB");
+
+            m.typeDefs = new[]
+            {
+                new Il2CppTypeDefinition
+                {
+                    bitfield = 3,
+                    fieldStart = 0,
+                    field_count = 2,
+                    elementTypeIndex = 0
+                }
+            };
+            m.fieldDefs = new[]
+            {
+                new Il2CppFieldDefinition { nameIndex = 10, typeIndex = 1 },
+                new Il2CppFieldDefinition { nameIndex = 20, typeIndex = 1 }
+            };
+
+            using var il = CreateMemory(version: 35);
+            il.types = new[]
+            {
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4 },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, attrs = FIELD_ATTRIBUTE_STATIC | FIELD_ATTRIBUTE_LITERAL, data = new Il2CppType.Union { dummy = 0 } }
+            };
+
+            var executor = new Il2CppExecutor(m, il);
+            var resolvedType = executor.GetEnumUnderlyingType(m.typeDefs[0]);
+
+            Assert.Null(resolvedType);
+
+            var generator = new StructGenerator(executor);
+            var headerType = InvokeParseType(generator, il.types[1]);
+            Assert.NotNull(headerType);
+
+            using var reader = new BinaryReader(new MemoryStream(new byte[] { (byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM, 2, 0x80 }));
+            var decoded = executor.ReadEncodedTypeEnum(reader, out var enumType);
+            Assert.Same(il.types[1], enumType);
+            Assert.Equal(Il2CppTypeEnum.IL2CPP_TYPE_ENUM, decoded);
         }
 
         [Fact]

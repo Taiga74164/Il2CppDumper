@@ -497,7 +497,11 @@ namespace Il2CppDumper
             {
                 if (typeDef.elementTypeIndex >= 0 && typeDef.elementTypeIndex < il2Cpp.types.Length)
                 {
-                    return il2Cpp.types[typeDef.elementTypeIndex];
+                    var legacyType = il2Cpp.types[typeDef.elementTypeIndex];
+                    if (IsValidEnumUnderlyingType(legacyType.type))
+                    {
+                        return legacyType;
+                    }
                 }
             }
 
@@ -505,14 +509,14 @@ namespace Il2CppDumper
             {
                 var fieldEnd = typeDef.fieldStart + typeDef.field_count;
 
-                // Priority 1: Non-static field named "value__"
+                // Priority 1: Non-static field named "value__" with valid integral underlying type
                 for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
                 {
                     var fieldDef = metadata.fieldDefs[i];
                     if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
                     {
                         var fieldType = il2Cpp.types[fieldDef.typeIndex];
-                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0)
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0 && IsValidEnumUnderlyingType(fieldType.type))
                         {
                             string fieldName = null;
                             try
@@ -530,37 +534,42 @@ namespace Il2CppDumper
                     }
                 }
 
-                // Priority 2: Any non-static field
+                // Priority 2: Any non-static field with valid integral underlying type
                 for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
                 {
                     var fieldDef = metadata.fieldDefs[i];
                     if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
                     {
                         var fieldType = il2Cpp.types[fieldDef.typeIndex];
-                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0)
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0 && IsValidEnumUnderlyingType(fieldType.type))
                         {
                             return fieldType;
                         }
                     }
                 }
-
-                // Priority 3: Fallback to first field of the type definition
-                if (typeDef.fieldStart < metadata.fieldDefs.Length)
-                {
-                    var fieldDef = metadata.fieldDefs[typeDef.fieldStart];
-                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
-                    {
-                        return il2Cpp.types[fieldDef.typeIndex];
-                    }
-                }
-            }
-
-            if (typeDef.elementTypeIndex >= 0 && typeDef.elementTypeIndex < il2Cpp.types.Length)
-            {
-                return il2Cpp.types[typeDef.elementTypeIndex];
             }
 
             return null;
+        }
+
+        private static bool IsValidEnumUnderlyingType(Il2CppTypeEnum type)
+        {
+            return type switch
+            {
+                Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_CHAR => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I1 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U1 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I2 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U2 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I4 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U4 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I8 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U8 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U => true,
+                _ => false
+            };
         }
 
         public Il2CppTypeEnum ReadEncodedTypeEnum(BinaryReader reader, out Il2CppType enumType)
