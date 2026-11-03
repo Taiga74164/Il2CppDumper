@@ -408,6 +408,12 @@ namespace Il2CppDumper
                 case Il2CppTypeEnum.IL2CPP_TYPE_I8:
                     value.Value = reader.ReadInt64();
                     return true;
+                case Il2CppTypeEnum.IL2CPP_TYPE_I:
+                    value.Value = il2Cpp.PointerSize == 4 ? reader.ReadInt32() : reader.ReadInt64();
+                    return true;
+                case Il2CppTypeEnum.IL2CPP_TYPE_U:
+                    value.Value = il2Cpp.PointerSize == 4 ? reader.ReadUInt32() : reader.ReadUInt64();
+                    return true;
                 case Il2CppTypeEnum.IL2CPP_TYPE_R4:
                     value.Value = reader.ReadSingle();
                     return true;
@@ -582,10 +588,11 @@ namespace Il2CppDumper
                 enumType = il2Cpp.types[enumTypeIndex];
                 var typeDef = GetTypeDefinitionFromIl2CppType(enumType);
                 var underlyingType = GetEnumUnderlyingType(typeDef);
-                if (underlyingType != null)
+                if (underlyingType == null)
                 {
-                    type = underlyingType.type;
+                    throw new InvalidDataException($"Unable to resolve underlying type for enum type index {enumTypeIndex}.");
                 }
+                type = underlyingType.type;
             }
             return type;
         }

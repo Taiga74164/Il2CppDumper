@@ -587,9 +587,12 @@ namespace Il2CppDumper
                         if (typeDef.IsEnum)
                         {
                             var underlyingType = executor.GetEnumUnderlyingType(typeDef);
-                            return underlyingType != null ? ParseType(underlyingType) : (structNameDic.TryGetValue(typeDef, out var sName) ? sName + "_o" : "void*");
+                            if (underlyingType != null)
+                            {
+                                return ParseType(underlyingType);
+                            }
                         }
-                        return structNameDic.TryGetValue(typeDef, out var structName) ? structName + "_o" : "void*";
+                        return structNameDic[typeDef] + "_o";
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_CLASS:
                     {

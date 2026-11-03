@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -233,6 +234,8 @@ namespace Il2CppDumper.Tests
         [InlineData(Il2CppTypeEnum.IL2CPP_TYPE_U4, "uint32_t", 4)]
         [InlineData(Il2CppTypeEnum.IL2CPP_TYPE_I8, "int64_t", 8)]
         [InlineData(Il2CppTypeEnum.IL2CPP_TYPE_U8, "uint64_t", 8)]
+        [InlineData(Il2CppTypeEnum.IL2CPP_TYPE_I, "intptr_t", 4)]
+        [InlineData(Il2CppTypeEnum.IL2CPP_TYPE_U, "uintptr_t", 4)]
         public void ReadEncodedTypeEnum_VariousUnderlyingScalarTypes_ConsumesExpectedBytesAndEmitsCorrectCHeader(
             Il2CppTypeEnum expectedTypeEnum, string expectedCHeader, int expectedBlobBytes)
         {
@@ -267,7 +270,6 @@ namespace Il2CppDumper.Tests
 
             var executor = new Il2CppExecutor(m, il);
 
-            // Construct payload with IL2CPP_TYPE_ENUM, typeIndex = 1 (encoded as 2 in compressed int)
             var blob = new byte[32];
             blob[0] = (byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM;
             blob[1] = 2; // decodes to 1
@@ -286,9 +288,6 @@ namespace Il2CppDumper.Tests
             Assert.True(blobRead);
             var consumed = reader.BaseStream.Position - startPos;
 
-            // Note: For 32-bit types (I4/U4) on il2cpp v29+, ReadCompressedInt32/UInt32 is used.
-            // 0x42 has the high bit 0, so compressed format consumes 1 byte.
-            // For 1-byte, 2-byte, 8-byte types, standard byte width is consumed.
             if (expectedTypeEnum is Il2CppTypeEnum.IL2CPP_TYPE_I4 or Il2CppTypeEnum.IL2CPP_TYPE_U4)
             {
                 Assert.Equal(1L, consumed); // 0x42 single-byte compressed integer
@@ -301,6 +300,58 @@ namespace Il2CppDumper.Tests
             var generator = new StructGenerator(executor);
             var cHeader = InvokeParseType(generator, il.types[1]);
             Assert.Equal(expectedCHeader, cHeader);
+        }
+
+        [Fact]
+        public void ReadEncodedTypeEnum_NativeIntIn64BitBinary_DecodesEightBytes()
+        {
+            using var m = CreateEmptyMetadata(version: 38);
+            WriteString(m, 10, "value__");
+            m.typeDefs = new[]
+            {
+                new Il2CppTypeDefinition
+                {
+                    bitfield = 3,
+                    fieldStart = 0,
+                    field_count = 1,
+                    elementTypeIndex = 0
+                }
+            };
+            m.fieldDefs = new[]
+            {
+                new Il2CppFieldDefinition { nameIndex = 10, typeIndex = 2 }
+            };
+
+            using var il = CreateMemory(version: 38);
+            il.Is32Bit = false; // 64-bit target
+            Assert.Equal(8ul, il.PointerSize);
+
+            il.types = new[]
+            {
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4 },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, data = new Il2CppType.Union { dummy = 0 } },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I }
+            };
+
+            var executor = new Il2CppExecutor(m, il);
+
+            var blob = new byte[32];
+            blob[0] = (byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM;
+            blob[1] = 2; // decodes to 1
+            for (int b = 2; b < blob.Length; b++)
+            {
+                blob[b] = 0x55;
+            }
+
+            using var reader = new BinaryReader(new MemoryStream(blob));
+            var decoded = executor.ReadEncodedTypeEnum(reader, out var enumType);
+            Assert.Equal(Il2CppTypeEnum.IL2CPP_TYPE_I, decoded);
+
+            var startPos = reader.BaseStream.Position;
+            var success = executor.GetConstantValueFromBlob(decoded, reader, out var blobVal);
+            Assert.True(success);
+            Assert.Equal(8L, reader.BaseStream.Position - startPos);
+            Assert.IsType<long>(blobVal.Value);
         }
 
         [Fact]
@@ -527,14 +578,87 @@ namespace Il2CppDumper.Tests
 
             Assert.Null(resolvedType);
 
+            // StructGenerator without resolved underlying type falls back to structNameDic[typeDef] + "_o"
             var generator = new StructGenerator(executor);
+            var structNameDic = (Dictionary<Il2CppTypeDefinition, string>)typeof(StructGenerator)
+                .GetField("structNameDic", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(generator)!;
+            structNameDic[m.typeDefs[0]] = "StaticOnlyEnum";
             var headerType = InvokeParseType(generator, il.types[1]);
-            Assert.NotNull(headerType);
+            Assert.Equal("StaticOnlyEnum_o", headerType);
 
+            // ReadEncodedTypeEnum throws explicit InvalidDataException rather than returning IL2CPP_TYPE_ENUM
             using var reader = new BinaryReader(new MemoryStream(new byte[] { (byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM, 2, 0x80 }));
-            var decoded = executor.ReadEncodedTypeEnum(reader, out var enumType);
-            Assert.Same(il.types[1], enumType);
-            Assert.Equal(Il2CppTypeEnum.IL2CPP_TYPE_ENUM, decoded);
+            Assert.Throws<InvalidDataException>(() => executor.ReadEncodedTypeEnum(reader, out _));
+        }
+
+        [Fact]
+        public void CustomAttributeDataReader_UnresolvedEnum_ThrowsExplicitlyAndDoesNotReusePayload()
+        {
+            using var m = CreateEmptyMetadata(version: 35);
+            m.typeDefs = new[]
+            {
+                new Il2CppTypeDefinition
+                {
+                    bitfield = 3, // enum
+                    fieldStart = 0,
+                    field_count = 1,
+                    elementTypeIndex = 0
+                },
+                new Il2CppTypeDefinition // Attribute type
+                {
+                    bitfield = 1,
+                    nameIndex = 10
+                }
+            };
+            WriteString(m, 10, "TestAttribute");
+            m.fieldDefs = new[]
+            {
+                // Only static field, enum has no valid instance field
+                new Il2CppFieldDefinition { typeIndex = 1 }
+            };
+            m.methodDefs = new[]
+            {
+                new Il2CppMethodDefinition { declaringType = 1, nameIndex = 20 }
+            };
+            WriteString(m, 20, ".ctor");
+
+            using var il = CreateMemory(version: 35);
+            il.types = new[]
+            {
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4 }, // index 0
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, attrs = FIELD_ATTRIBUTE_STATIC | FIELD_ATTRIBUTE_LITERAL, data = new Il2CppType.Union { dummy = 0 } } // index 1
+            };
+
+            var executor = new Il2CppExecutor(m, il);
+
+            // Construct CustomAttributeDataReader buffer:
+            // Count = 1 (1 byte compressed uint)
+            // ctorIndex = 0 (4 bytes int32)
+            // dataBuffer:
+            //   argumentCount = 2 (compressed uint32: 2)
+            //   fieldCount = 0 (compressed uint32: 0)
+            //   propertyCount = 0 (compressed uint32: 0)
+            //   arg 1: (byte)IL2CPP_TYPE_ENUM, typeIndex = 1 (compressed: 2), value payload byte 0x42
+            //   arg 2: (byte)IL2CPP_TYPE_I4, value 10 (compressed int: 20)
+            using var ms = new MemoryStream();
+            using var bw = new BinaryWriter(ms);
+            bw.Write((byte)1); // Count = 1
+            bw.Write(0); // ctorIndex = 0
+            bw.Write((byte)2); // argumentCount = 2
+            bw.Write((byte)0); // fieldCount = 0
+            bw.Write((byte)0); // propertyCount = 0
+            bw.Write((byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM);
+            bw.Write((byte)2); // typeIndex = 1
+            bw.Write((byte)0x42); // payload byte that would corrupt stream if not aborted
+            bw.Write((byte)Il2CppTypeEnum.IL2CPP_TYPE_I4);
+            bw.Write((byte)20); // int 10
+
+            var buff = ms.ToArray();
+            var reader = new CustomAttributeDataReader(executor, buff);
+
+            // Must throw InvalidDataException on reading the unresolvable enum argument, aborting parsing
+            Assert.Throws<InvalidDataException>(() => reader.GetStringCustomAttributeData());
         }
 
         [Fact]
