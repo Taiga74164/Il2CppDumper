@@ -586,7 +586,8 @@ namespace Il2CppDumper
                         var typeDef = executor.GetTypeDefinitionFromIl2CppType(il2CppType);
                         if (typeDef.IsEnum)
                         {
-                            return ParseType(il2Cpp.types[typeDef.elementTypeIndex]);
+                            var underlyingType = executor.GetEnumUnderlyingType(typeDef);
+                            return underlyingType != null ? ParseType(underlyingType) : structNameDic[typeDef] + "_o";
                         }
                         return structNameDic[typeDef] + "_o";
                     }
@@ -628,7 +629,8 @@ namespace Il2CppDumper
                         {
                             if (typeDef.IsEnum)
                             {
-                                return ParseType(il2Cpp.types[typeDef.elementTypeIndex]);
+                                var underlyingType = executor.GetEnumUnderlyingType(typeDef);
+                                return underlyingType != null ? ParseType(underlyingType) : typeStructName + "_o";
                             }
                             return typeStructName + "_o";
                         }
@@ -1300,7 +1302,8 @@ namespace Il2CppDumper
                         var typeDef = executor.GetTypeDefinitionFromIl2CppType(il2CppType);
                         if (typeDef.IsEnum)
                         {
-                            return IsCustomType(il2Cpp.types[typeDef.elementTypeIndex], context);
+                            var underlyingType = executor.GetEnumUnderlyingType(typeDef);
+                            return underlyingType != null && IsCustomType(underlyingType, context);
                         }
                         return true;
                     }
@@ -1310,7 +1313,8 @@ namespace Il2CppDumper
                         var typeDef = executor.GetGenericClassTypeDefinition(genericClass);
                         if (typeDef.IsEnum)
                         {
-                            return IsCustomType(il2Cpp.types[typeDef.elementTypeIndex], context);
+                            var underlyingType = executor.GetEnumUnderlyingType(typeDef);
+                            return underlyingType != null && IsCustomType(underlyingType, context);
                         }
                         return true;
                     }

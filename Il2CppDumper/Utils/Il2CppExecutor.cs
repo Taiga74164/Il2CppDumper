@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using static Il2CppDumper.Il2CppConstants;
 
 namespace Il2CppDumper
 {
@@ -485,6 +486,83 @@ namespace Il2CppDumper
             }
         }
 
+        public Il2CppType GetEnumUnderlyingType(Il2CppTypeDefinition typeDef)
+        {
+            if (typeDef == null)
+            {
+                return null;
+            }
+
+            if (metadata.Version <= 31)
+            {
+                if (typeDef.elementTypeIndex >= 0 && typeDef.elementTypeIndex < il2Cpp.types.Length)
+                {
+                    return il2Cpp.types[typeDef.elementTypeIndex];
+                }
+            }
+
+            if (metadata.fieldDefs != null && typeDef.field_count > 0 && typeDef.fieldStart >= 0)
+            {
+                var fieldEnd = typeDef.fieldStart + typeDef.field_count;
+
+                // Priority 1: Non-static field named "value__"
+                for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
+                {
+                    var fieldDef = metadata.fieldDefs[i];
+                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
+                    {
+                        var fieldType = il2Cpp.types[fieldDef.typeIndex];
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0)
+                        {
+                            string fieldName = null;
+                            try
+                            {
+                                fieldName = metadata.GetStringFromIndex(fieldDef.nameIndex);
+                            }
+                            catch
+                            {
+                            }
+                            if (fieldName == "value__")
+                            {
+                                return fieldType;
+                            }
+                        }
+                    }
+                }
+
+                // Priority 2: Any non-static field
+                for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
+                {
+                    var fieldDef = metadata.fieldDefs[i];
+                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
+                    {
+                        var fieldType = il2Cpp.types[fieldDef.typeIndex];
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0)
+                        {
+                            return fieldType;
+                        }
+                    }
+                }
+
+                // Priority 3: Fallback to first field of the type definition
+                if (typeDef.fieldStart < metadata.fieldDefs.Length)
+                {
+                    var fieldDef = metadata.fieldDefs[typeDef.fieldStart];
+                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
+                    {
+                        return il2Cpp.types[fieldDef.typeIndex];
+                    }
+                }
+            }
+
+            if (typeDef.elementTypeIndex >= 0 && typeDef.elementTypeIndex < il2Cpp.types.Length)
+            {
+                return il2Cpp.types[typeDef.elementTypeIndex];
+            }
+
+            return null;
+        }
+
         public Il2CppTypeEnum ReadEncodedTypeEnum(BinaryReader reader, out Il2CppType enumType)
         {
             enumType = null;
@@ -494,7 +572,11 @@ namespace Il2CppDumper
                 var enumTypeIndex = reader.ReadCompressedInt32();
                 enumType = il2Cpp.types[enumTypeIndex];
                 var typeDef = GetTypeDefinitionFromIl2CppType(enumType);
-                type = il2Cpp.types[typeDef.elementTypeIndex].type;
+                var underlyingType = GetEnumUnderlyingType(typeDef);
+                if (underlyingType != null)
+                {
+                    type = underlyingType.type;
+                }
             }
             return type;
         }
