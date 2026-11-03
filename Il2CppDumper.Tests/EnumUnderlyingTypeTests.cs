@@ -284,8 +284,9 @@ namespace Il2CppDumper.Tests
             Assert.Same(il.types[1], enumType);
 
             var startPos = reader.BaseStream.Position; // 2
-            var blobRead = executor.GetConstantValueFromBlob(decoded, reader, out _);
+            var blobRead = executor.GetConstantValueFromBlob(decoded, reader, out var blobVal);
             Assert.True(blobRead);
+            Assert.NotNull(blobVal);
             var consumed = reader.BaseStream.Position - startPos;
 
             if (expectedTypeEnum is Il2CppTypeEnum.IL2CPP_TYPE_I4 or Il2CppTypeEnum.IL2CPP_TYPE_U4)
@@ -295,6 +296,15 @@ namespace Il2CppDumper.Tests
             else
             {
                 Assert.Equal(expectedBlobBytes, consumed);
+            }
+
+            if (expectedTypeEnum == Il2CppTypeEnum.IL2CPP_TYPE_I)
+            {
+                Assert.IsType<int>(blobVal.Value);
+            }
+            else if (expectedTypeEnum == Il2CppTypeEnum.IL2CPP_TYPE_U)
+            {
+                Assert.IsType<uint>(blobVal.Value);
             }
 
             var generator = new StructGenerator(executor);
@@ -335,23 +345,93 @@ namespace Il2CppDumper.Tests
 
             var executor = new Il2CppExecutor(m, il);
 
-            var blob = new byte[32];
-            blob[0] = (byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM;
-            blob[1] = 2; // decodes to 1
-            for (int b = 2; b < blob.Length; b++)
-            {
-                blob[b] = 0x55;
-            }
+            const long expectedValue = -42L;
+            var valueBytes = BitConverter.GetBytes(expectedValue);
 
-            using var reader = new BinaryReader(new MemoryStream(blob));
+            var blobStream = new MemoryStream();
+            blobStream.WriteByte((byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM);
+            blobStream.WriteByte(2); // decodes to typeIndex 1
+            blobStream.Write(valueBytes, 0, valueBytes.Length);
+            blobStream.Write(new byte[] { 0xAA, 0xBB, 0xCC }, 0, 3); // Trailing sentinel bytes
+
+            blobStream.Position = 0;
+            using var reader = new BinaryReader(blobStream);
             var decoded = executor.ReadEncodedTypeEnum(reader, out var enumType);
             Assert.Equal(Il2CppTypeEnum.IL2CPP_TYPE_I, decoded);
+            Assert.Same(il.types[1], enumType);
 
             var startPos = reader.BaseStream.Position;
             var success = executor.GetConstantValueFromBlob(decoded, reader, out var blobVal);
             Assert.True(success);
+            Assert.NotNull(blobVal);
             Assert.Equal(8L, reader.BaseStream.Position - startPos);
             Assert.IsType<long>(blobVal.Value);
+            Assert.Equal(expectedValue, (long)blobVal.Value);
+
+            var generator = new StructGenerator(executor);
+            var cHeader = InvokeParseType(generator, il.types[1]);
+            Assert.Equal("intptr_t", cHeader);
+        }
+
+        [Fact]
+        public void ReadEncodedTypeEnum_UnsignedNativeIntIn64BitBinary_HighBitSet_DecodesEightBytesAsUInt64()
+        {
+            using var m = CreateEmptyMetadata(version: 38);
+            WriteString(m, 10, "value__");
+            m.typeDefs = new[]
+            {
+                new Il2CppTypeDefinition
+                {
+                    bitfield = 3,
+                    fieldStart = 0,
+                    field_count = 1,
+                    elementTypeIndex = 0
+                }
+            };
+            m.fieldDefs = new[]
+            {
+                new Il2CppFieldDefinition { nameIndex = 10, typeIndex = 2 }
+            };
+
+            using var il = CreateMemory(version: 38);
+            il.Is32Bit = false; // 64-bit target
+            Assert.Equal(8ul, il.PointerSize);
+
+            il.types = new[]
+            {
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4 },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, data = new Il2CppType.Union { dummy = 0 } },
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_U }
+            };
+
+            var executor = new Il2CppExecutor(m, il);
+
+            const ulong expectedValue = 0x8000000000000042UL; // High bit set
+            var valueBytes = BitConverter.GetBytes(expectedValue);
+
+            var blobStream = new MemoryStream();
+            blobStream.WriteByte((byte)Il2CppTypeEnum.IL2CPP_TYPE_ENUM);
+            blobStream.WriteByte(2); // decodes to typeIndex 1
+            blobStream.Write(valueBytes, 0, valueBytes.Length);
+            blobStream.Write(new byte[] { 0xAA, 0xBB, 0xCC }, 0, 3); // Trailing sentinel bytes
+
+            blobStream.Position = 0;
+            using var reader = new BinaryReader(blobStream);
+            var decoded = executor.ReadEncodedTypeEnum(reader, out var enumType);
+            Assert.Equal(Il2CppTypeEnum.IL2CPP_TYPE_U, decoded);
+            Assert.Same(il.types[1], enumType);
+
+            var startPos = reader.BaseStream.Position;
+            var success = executor.GetConstantValueFromBlob(decoded, reader, out var blobVal);
+            Assert.True(success);
+            Assert.NotNull(blobVal);
+            Assert.Equal(8L, reader.BaseStream.Position - startPos);
+            Assert.IsType<ulong>(blobVal.Value);
+            Assert.Equal(expectedValue, (ulong)blobVal.Value);
+
+            var generator = new StructGenerator(executor);
+            var cHeader = InvokeParseType(generator, il.types[1]);
+            Assert.Equal("uintptr_t", cHeader);
         }
 
         [Fact]

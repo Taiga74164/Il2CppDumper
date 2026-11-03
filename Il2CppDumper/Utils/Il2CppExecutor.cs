@@ -409,10 +409,10 @@ namespace Il2CppDumper
                     value.Value = reader.ReadInt64();
                     return true;
                 case Il2CppTypeEnum.IL2CPP_TYPE_I:
-                    value.Value = il2Cpp.PointerSize == 4 ? reader.ReadInt32() : reader.ReadInt64();
+                    value.Value = il2Cpp.PointerSize == 4 ? (object)reader.ReadInt32() : reader.ReadInt64();
                     return true;
                 case Il2CppTypeEnum.IL2CPP_TYPE_U:
-                    value.Value = il2Cpp.PointerSize == 4 ? reader.ReadUInt32() : reader.ReadUInt64();
+                    value.Value = il2Cpp.PointerSize == 4 ? (object)reader.ReadUInt32() : reader.ReadUInt64();
                     return true;
                 case Il2CppTypeEnum.IL2CPP_TYPE_R4:
                     value.Value = reader.ReadSingle();
