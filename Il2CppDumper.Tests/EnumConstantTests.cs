@@ -195,6 +195,315 @@ namespace Il2CppDumper.Tests
             Assert.Equal(inputValue.GetType(), readParam.Constant.GetType());
         }
 
+        [Theory]
+        [InlineData("System.UInt16", (short)7, typeof(ushort), (ushort)7)]
+        [InlineData("System.UInt16", 7u, typeof(ushort), (ushort)7)]
+        [InlineData("System.Byte", 7, typeof(byte), (byte)7)]
+        [InlineData("System.SByte", (short)-5, typeof(sbyte), (sbyte)-5)]
+        [InlineData("System.Int16", (int)500, typeof(short), (short)500)]
+        [InlineData("System.Int32", (short)100, typeof(int), 100)]
+        [InlineData("System.Int32", 100L, typeof(int), 100)]
+        [InlineData("System.UInt32", 100, typeof(uint), 100u)]
+        [InlineData("System.Int64", 100, typeof(long), 100L)]
+        [InlineData("System.UInt64", 100u, typeof(ulong), 100UL)]
+        public void EnumFields_CrossRepresentation_NormalizedToDeclaredUnderlyingType(
+            string underlyingTypeName, object input, Type expectedType, object expectedValue)
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("CrossFieldTest_" + underlyingTypeName.Replace(".", "_"), new Version(1, 0)),
+                "CrossFieldTest.dll",
+                ModuleKind.Dll);
+
+            var module = assembly.MainModule;
+            var underlyingType = ResolveTypeReference(module, underlyingTypeName);
+
+            var enumType = new TypeDefinition(
+                "Test",
+                "CrossEnum_" + underlyingTypeName.Replace(".", "_"),
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                module.ImportReference(typeof(Enum)));
+            module.Types.Add(enumType);
+
+            enumType.Fields.Add(new FieldDefinition(
+                "value__",
+                FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+                underlyingType));
+
+            var enumMember = new FieldDefinition(
+                "Member",
+                FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault,
+                enumType);
+            enumType.Fields.Add(enumMember);
+
+            var accepted = DummyAssemblyGenerator.TrySetConstant(enumMember, enumType, input);
+            Assert.True(accepted);
+            Assert.Equal(expectedType, enumMember.Constant.GetType());
+            Assert.Equal(expectedValue, enumMember.Constant);
+
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+            Assert.True(enumMember.HasConstant);
+            Assert.Equal(expectedType, enumMember.Constant.GetType());
+
+            using var stream = new MemoryStream();
+            assembly.Write(stream);
+            stream.Position = 0;
+
+            using var read = AssemblyDefinition.ReadAssembly(stream);
+            var actual = read.MainModule.GetType(enumType.FullName).Fields[1].Constant;
+            Assert.Equal(expectedType, actual.GetType());
+            Assert.Equal(expectedValue, actual);
+        }
+
+        [Theory]
+        [InlineData("System.UInt16", (short)7, typeof(ushort), (ushort)7)]
+        [InlineData("System.UInt16", 7u, typeof(ushort), (ushort)7)]
+        [InlineData("System.Byte", 7, typeof(byte), (byte)7)]
+        public void EnumParameters_CrossRepresentation_NormalizedToDeclaredUnderlyingType(
+            string underlyingTypeName, object input, Type expectedType, object expectedValue)
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("CrossParamTest_" + underlyingTypeName.Replace(".", "_"), new Version(1, 0)),
+                "CrossParamTest.dll",
+                ModuleKind.Dll);
+
+            var module = assembly.MainModule;
+            var underlyingType = ResolveTypeReference(module, underlyingTypeName);
+
+            var enumType = new TypeDefinition("Test", "CrossParamEnum", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(Enum)));
+            module.Types.Add(enumType);
+            enumType.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, underlyingType));
+
+            var cls = new TypeDefinition("Test", "H", TypeAttributes.Public, module.TypeSystem.Object);
+            module.Types.Add(cls);
+            var method = new MethodDefinition("M", MethodAttributes.Public, module.TypeSystem.Void);
+            cls.Methods.Add(method);
+            var param = new ParameterDefinition("p", ParameterAttributes.Optional | ParameterAttributes.HasDefault, enumType);
+            method.Parameters.Add(param);
+
+            var accepted = DummyAssemblyGenerator.TrySetConstant(param, enumType, input);
+            Assert.True(accepted);
+            Assert.Equal(expectedType, param.Constant.GetType());
+            Assert.Equal(expectedValue, param.Constant);
+
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+            Assert.True(param.HasConstant);
+            Assert.Equal(expectedType, param.Constant.GetType());
+
+            using var stream = new MemoryStream();
+            assembly.Write(stream);
+            stream.Position = 0;
+
+            using var read = AssemblyDefinition.ReadAssembly(stream);
+            var actual = read.MainModule.GetType("Test.H").Methods[0].Parameters[0].Constant;
+            Assert.Equal(expectedType, actual.GetType());
+            Assert.Equal(expectedValue, actual);
+        }
+
+        [Theory]
+        [InlineData("System.UInt16", (short)-1)]
+        [InlineData("System.UInt16", 65536u)]
+        [InlineData("System.Byte", -1)]
+        [InlineData("System.Byte", 256)]
+        [InlineData("System.SByte", -129)]
+        [InlineData("System.SByte", 128)]
+        [InlineData("System.Int16", -32769)]
+        [InlineData("System.Int16", 32768)]
+        [InlineData("System.UInt32", -1)]
+        [InlineData("System.Int32", 2147483648L)]
+        [InlineData("System.UInt64", -1L)]
+        public void EnumConstants_OutOfRangeValues_AreRejected(string underlyingTypeName, object outOfRangeInput)
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("OutOfRangeTest", new Version(1, 0)),
+                "OutOfRangeTest.dll",
+                ModuleKind.Dll);
+
+            var module = assembly.MainModule;
+            var underlyingType = ResolveTypeReference(module, underlyingTypeName);
+
+            var enumType = new TypeDefinition("Test", "OutOfRangeEnum", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(Enum)));
+            module.Types.Add(enumType);
+            enumType.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, underlyingType));
+
+            var field = new FieldDefinition("F", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, enumType);
+            enumType.Fields.Add(field);
+
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, enumType, outOfRangeInput),
+                $"TrySetConstant should reject out-of-range value {outOfRangeInput} for {underlyingTypeName}.");
+
+            // If an out-of-range value was pre-assigned, sanitizer must clear it
+            field.Constant = outOfRangeInput;
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+            Assert.False(field.HasConstant);
+            Assert.Null(field.Constant);
+            Assert.False(field.Attributes.HasFlag(FieldAttributes.HasDefault));
+        }
+
+        [Theory]
+        [InlineData("7")]
+        [InlineData("0")]
+        [InlineData(7.5d)]
+        [InlineData(3.14f)]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void EnumConstants_NonIntegralPayloads_AreRejected(object nonIntegralInput)
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("NonIntegralPayloadTest", new Version(1, 0)),
+                "NonIntegralPayloadTest.dll",
+                ModuleKind.Dll);
+
+            var module = assembly.MainModule;
+            var enumType = new TypeDefinition("Test", "PayloadEnum", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(Enum)));
+            module.Types.Add(enumType);
+            enumType.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, module.TypeSystem.Int32));
+
+            var field = new FieldDefinition("F", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, enumType);
+            enumType.Fields.Add(field);
+
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, enumType, nonIntegralInput));
+
+            field.Constant = nonIntegralInput;
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+            Assert.False(field.HasConstant);
+            Assert.Null(field.Constant);
+            Assert.False(field.Attributes.HasFlag(FieldAttributes.HasDefault));
+        }
+
+        [Fact]
+        public void EnumConstants_DecimalAndObjectPayloads_AreRejected()
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("DecimalObjectTest", new Version(1, 0)),
+                "DecimalObjectTest.dll",
+                ModuleKind.Dll);
+
+            var module = assembly.MainModule;
+            var enumType = new TypeDefinition("Test", "DecimalEnum", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(Enum)));
+            module.Types.Add(enumType);
+            enumType.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, module.TypeSystem.Int32));
+
+            var field = new FieldDefinition("F", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, enumType);
+            enumType.Fields.Add(field);
+
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, enumType, 9.2m));
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, enumType, new object()));
+        }
+
+        [Theory]
+        [InlineData("array")]
+        [InlineData("pointer")]
+        [InlineData("byref")]
+        public void TypeWrappers_ArraysPointersByRefs_RejectScalarConstants(string wrapper)
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("WrapperTest_" + wrapper, new Version(1, 0)),
+                "WrapperTest.dll",
+                ModuleKind.Dll);
+
+            var m = assembly.MainModule;
+            TypeReference target = wrapper switch
+            {
+                "array" => new ArrayType(m.TypeSystem.Int32),
+                "pointer" => new PointerType(m.TypeSystem.Int32),
+                _ => new ByReferenceType(m.TypeSystem.Int32)
+            };
+
+            var holder = new TypeDefinition("Test", "Holder", TypeAttributes.Public, m.TypeSystem.Object);
+            m.Types.Add(holder);
+
+            var field = new FieldDefinition("Invalid", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, target);
+            holder.Fields.Add(field);
+
+            Assert.False(DummyAssemblyGenerator.CanWriteConstant(target), $"CanWriteConstant must be false for {target.FullName}.");
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(field, target, 7), $"TrySetConstant must reject scalar constant for {target.FullName}.");
+
+            // Even if an invalid constant was pre-assigned, sanitizer must clear it and assembly serialization must succeed
+            field.Constant = 7;
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+
+            Assert.False(field.HasConstant);
+            Assert.Null(field.Constant);
+            Assert.False(field.Attributes.HasFlag(FieldAttributes.HasDefault));
+
+            using var stream = new MemoryStream();
+            assembly.Write(stream);
+            Assert.True(stream.Length > 0);
+
+            stream.Position = 0;
+            using var read = AssemblyDefinition.ReadAssembly(stream);
+            var readField = read.MainModule.GetType("Test.Holder").Fields[0];
+            Assert.False(readField.HasConstant);
+            Assert.Null(readField.Constant);
+        }
+
+        [Fact]
+        public void InvalidEnumUnderlyingTypes_AreRejected()
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("InvalidUnderlyingTest", new Version(1, 0)),
+                "InvalidUnderlyingTest.dll",
+                ModuleKind.Dll);
+
+            var m = assembly.MainModule;
+
+            // Enum with string value__
+            var stringEnum = new TypeDefinition("Test", "StringEnum", TypeAttributes.Public | TypeAttributes.Sealed, m.ImportReference(typeof(Enum)));
+            m.Types.Add(stringEnum);
+            stringEnum.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, m.TypeSystem.String));
+            var stringField = new FieldDefinition("F", FieldAttributes.Public, stringEnum);
+            stringEnum.Fields.Add(stringField);
+
+            Assert.False(DummyAssemblyGenerator.CanWriteConstant(stringEnum));
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(stringField, stringEnum, 7));
+
+            // Enum with float value__
+            var floatEnum = new TypeDefinition("Test", "FloatEnum", TypeAttributes.Public | TypeAttributes.Sealed, m.ImportReference(typeof(Enum)));
+            m.Types.Add(floatEnum);
+            floatEnum.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, m.TypeSystem.Single));
+            var floatField = new FieldDefinition("F", FieldAttributes.Public, floatEnum);
+            floatEnum.Fields.Add(floatField);
+
+            Assert.False(DummyAssemblyGenerator.CanWriteConstant(floatEnum));
+            Assert.False(DummyAssemblyGenerator.TrySetConstant(floatField, floatEnum, 7));
+        }
+
+        [Fact]
+        public void RealClrEnumInstances_AreNormalizedThroughUnderlyingPath()
+        {
+            using var assembly = AssemblyDefinition.CreateAssembly(
+                new AssemblyNameDefinition("ClrEnumTest", new Version(1, 0)),
+                "ClrEnumTest.dll",
+                ModuleKind.Dll);
+
+            var m = assembly.MainModule;
+            var enumType = new TypeDefinition("Test", "TargetEnum", TypeAttributes.Public | TypeAttributes.Sealed, m.ImportReference(typeof(Enum)));
+            m.Types.Add(enumType);
+            enumType.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, m.TypeSystem.Int32));
+
+            var field = new FieldDefinition("F", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, enumType);
+            enumType.Fields.Add(field);
+
+            // AttributeTargets.Class has int value 4
+            var accepted = DummyAssemblyGenerator.TrySetConstant(field, enumType, AttributeTargets.Class);
+            Assert.True(accepted);
+            Assert.Equal(4, field.Constant);
+            Assert.IsType<int>(field.Constant);
+
+            DummyAssemblyExporter.SanitizeConstants(assembly);
+            Assert.True(field.HasConstant);
+            Assert.Equal(4, field.Constant);
+
+            using var stream = new MemoryStream();
+            assembly.Write(stream);
+            stream.Position = 0;
+
+            using var read = AssemblyDefinition.ReadAssembly(stream);
+            var readVal = read.MainModule.GetType("Test.TargetEnum").Fields[1].Constant;
+            Assert.Equal(4, readVal);
+            Assert.IsType<int>(readVal);
+        }
+
         [Fact]
         public void Validation_RejectsGenuinelyUnsupportedConstantValues()
         {
