@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using static Il2CppDumper.Il2CppConstants;
 
 namespace Il2CppDumper
 {
@@ -407,6 +408,12 @@ namespace Il2CppDumper
                 case Il2CppTypeEnum.IL2CPP_TYPE_I8:
                     value.Value = reader.ReadInt64();
                     return true;
+                case Il2CppTypeEnum.IL2CPP_TYPE_I:
+                    value.Value = il2Cpp.PointerSize == 4 ? (object)reader.ReadInt32() : reader.ReadInt64();
+                    return true;
+                case Il2CppTypeEnum.IL2CPP_TYPE_U:
+                    value.Value = il2Cpp.PointerSize == 4 ? (object)reader.ReadUInt32() : reader.ReadUInt64();
+                    return true;
                 case Il2CppTypeEnum.IL2CPP_TYPE_R4:
                     value.Value = reader.ReadSingle();
                     return true;
@@ -485,6 +492,92 @@ namespace Il2CppDumper
             }
         }
 
+        public Il2CppType GetEnumUnderlyingType(Il2CppTypeDefinition typeDef)
+        {
+            if (typeDef == null)
+            {
+                return null;
+            }
+
+            if (metadata.Version <= 31)
+            {
+                if (typeDef.elementTypeIndex >= 0 && typeDef.elementTypeIndex < il2Cpp.types.Length)
+                {
+                    var legacyType = il2Cpp.types[typeDef.elementTypeIndex];
+                    if (IsValidEnumUnderlyingType(legacyType.type))
+                    {
+                        return legacyType;
+                    }
+                }
+            }
+
+            if (metadata.fieldDefs != null && typeDef.field_count > 0 && typeDef.fieldStart >= 0)
+            {
+                var fieldEnd = typeDef.fieldStart + typeDef.field_count;
+
+                // Priority 1: Non-static field named "value__" with valid integral underlying type
+                for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
+                {
+                    var fieldDef = metadata.fieldDefs[i];
+                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
+                    {
+                        var fieldType = il2Cpp.types[fieldDef.typeIndex];
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0 && IsValidEnumUnderlyingType(fieldType.type))
+                        {
+                            string fieldName = null;
+                            try
+                            {
+                                fieldName = metadata.GetStringFromIndex(fieldDef.nameIndex);
+                            }
+                            catch
+                            {
+                            }
+                            if (fieldName == "value__")
+                            {
+                                return fieldType;
+                            }
+                        }
+                    }
+                }
+
+                // Priority 2: Any non-static field with valid integral underlying type
+                for (var i = typeDef.fieldStart; i < fieldEnd && i < metadata.fieldDefs.Length; ++i)
+                {
+                    var fieldDef = metadata.fieldDefs[i];
+                    if (fieldDef.typeIndex >= 0 && fieldDef.typeIndex < il2Cpp.types.Length)
+                    {
+                        var fieldType = il2Cpp.types[fieldDef.typeIndex];
+                        if ((fieldType.attrs & FIELD_ATTRIBUTE_STATIC) == 0 && IsValidEnumUnderlyingType(fieldType.type))
+                        {
+                            return fieldType;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsValidEnumUnderlyingType(Il2CppTypeEnum type)
+        {
+            return type switch
+            {
+                Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_CHAR => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I1 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U1 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I2 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U2 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I4 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U4 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I8 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U8 => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_I => true,
+                Il2CppTypeEnum.IL2CPP_TYPE_U => true,
+                _ => false
+            };
+        }
+
         public Il2CppTypeEnum ReadEncodedTypeEnum(BinaryReader reader, out Il2CppType enumType)
         {
             enumType = null;
@@ -494,7 +587,12 @@ namespace Il2CppDumper
                 var enumTypeIndex = reader.ReadCompressedInt32();
                 enumType = il2Cpp.types[enumTypeIndex];
                 var typeDef = GetTypeDefinitionFromIl2CppType(enumType);
-                type = il2Cpp.types[typeDef.elementTypeIndex].type;
+                var underlyingType = GetEnumUnderlyingType(typeDef);
+                if (underlyingType == null)
+                {
+                    throw new InvalidDataException($"Unable to resolve underlying type for enum type index {enumTypeIndex}.");
+                }
+                type = underlyingType.type;
             }
             return type;
         }
