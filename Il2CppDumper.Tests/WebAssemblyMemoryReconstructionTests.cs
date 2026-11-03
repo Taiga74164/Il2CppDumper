@@ -209,6 +209,105 @@ namespace Il2CppDumper.Tests
             Assert.Equal(mem.Length, sectionHelper.Bss[0].offset);
         }
 
+        [Fact]
+        public void SectionHelper_ExtentBelow1024_ProducesEmptyDataAndSearchCompletesWithoutException()
+        {
+            // Reproduction fixture from Bot Review: file length 1125, but reconstructed extent 17 bytes (segment at offset 16)
+            using var input = new MemoryStream();
+            using (var writer = new BinaryWriter(input, System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(new byte[] { 0, 0x61, 0x73, 0x6D, 1, 0, 0, 0 });
+                writer.Write(new byte[] { 5, 3, 1, 0, 1 }); // memory: 1 page
+                writer.Write(new byte[] { 0, 0xCC, 8 }); // custom section: 1100-byte payload
+                writer.Write(new byte[1100]); // arbitrary custom data
+                writer.Write(new byte[] { 11, 7, 1, 0, 0x41, 16, 0x0B, 1, 0x41 }); // data at offset 16, length 1
+            }
+
+            using var wasm = new WebAssembly(new MemoryStream(input.ToArray()));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(17ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Empty(helper.Data);
+
+            var codeReg = helper.FindCodeRegistration();
+            Assert.Equal(0ul, codeReg);
+
+            var metaReg = helper.FindMetadataRegistration();
+            Assert.Equal(0ul, metaReg);
+
+            var searchResult = memory.PlusSearch(1, 1, 1);
+            Assert.False(searchResult);
+        }
+
+        [Fact]
+        public void SectionHelper_EmptyMemory_ProducesEmptyDataAndSearchCompletesWithoutException()
+        {
+            var wasmBytes = BuildWasmModuleWithoutDataSection();
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(0ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Empty(helper.Data);
+
+            Assert.Equal(0ul, helper.FindCodeRegistration());
+            Assert.Equal(0ul, helper.FindMetadataRegistration());
+            Assert.False(memory.PlusSearch(1, 1, 1));
+        }
+
+        [Fact]
+        public void SectionHelper_BoundaryExactly1024_ProducesEmptyDataAndSearchCompletesWithoutException()
+        {
+            // Segment ending exactly at offset 1024 (offset 1020, length 4)
+            var segment = (offset: 1020u, data: new byte[] { 1, 2, 3, 4 });
+            var wasmBytes = BuildWasmModule(segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(1024ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Empty(helper.Data);
+
+            Assert.Equal(0ul, helper.FindCodeRegistration());
+            Assert.Equal(0ul, helper.FindMetadataRegistration());
+            Assert.False(memory.PlusSearch(1, 1, 1));
+        }
+
+        [Fact]
+        public void SectionHelper_BoundaryJustAbove1024_ProducesValidDataRangeAndSearchCompletesWithoutException()
+        {
+            // Boundary at 1025 (offset 1024, length 1)
+            var segment = (offset: 1024u, data: new byte[] { 0x41 });
+            var wasmBytes = BuildWasmModule(segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27;
+
+            Assert.Equal(1025ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Single(helper.Data);
+            Assert.Equal(1024ul, helper.Data[0].offset);
+            Assert.Equal(1025ul, helper.Data[0].offsetEnd);
+
+            Assert.Equal(0ul, helper.FindCodeRegistration());
+            Assert.Equal(0ul, helper.FindMetadataRegistration());
+            Assert.False(memory.PlusSearch(1, 1, 1));
+        }
+
         private static byte[] BuildWasmModule(params (uint offset, byte[] data)[] segments)
         {
             return BuildWasmModuleRawSegments(writer =>
