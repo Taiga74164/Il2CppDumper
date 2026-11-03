@@ -222,9 +222,16 @@ namespace Il2CppDumper
                                 {
                                     var methodDef = metadata.methodDefs[metadata.GetMethodIndexFromTypeDefinition(typeDefIndex, propertyDef.set)];
                                     writer.Write(GetModifiers(methodDef));
-                                    var parameterDef = metadata.parameterDefs[methodDef.parameterStart];
-                                    var propertyType = il2Cpp.types[parameterDef.typeIndex];
-                                    writer.Write($"{executor.GetTypeName(propertyType, false, false)} {metadata.GetStringFromIndex(propertyDef.nameIndex)} {{ ");
+                                    if (methodDef.parameterCount > 0)
+                                    {
+                                        var parameterDef = metadata.parameterDefs[methodDef.parameterStart + methodDef.parameterCount - 1];
+                                        var propertyType = il2Cpp.types[parameterDef.typeIndex];
+                                        writer.Write($"{executor.GetTypeName(propertyType, false, false)} {metadata.GetStringFromIndex(propertyDef.nameIndex)} {{ ");
+                                    }
+                                    else
+                                    {
+                                        writer.Write($"void {metadata.GetStringFromIndex(propertyDef.nameIndex)} {{ ");
+                                    }
                                 }
                                 if (propertyDef.get >= 0)
                                     writer.Write("get; ");
