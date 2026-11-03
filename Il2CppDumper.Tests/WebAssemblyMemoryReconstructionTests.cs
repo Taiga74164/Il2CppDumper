@@ -308,6 +308,93 @@ namespace Il2CppDumper.Tests
             Assert.False(memory.PlusSearch(1, 1, 1));
         }
 
+        [Fact]
+        public void SectionHelper_MetadataV24_IncompletePointerAtEndOfData_FindRegistrationsAndPlusSearchCompleteWithoutException()
+        {
+            // Case from Bot Review: Metadata v24 with extent 1025 (only 1 byte available at offset 1024)
+            // Tests FindCodeRegistrationOld() boundary when reading first word
+            var segment = (offset: 1024u, data: new byte[] { 0x41 });
+            var wasmBytes = BuildWasmModuleWithCustomPayload(1102, segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 24.0;
+
+            Assert.Equal(1025ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Single(helper.Data);
+
+            Assert.Equal(0ul, helper.FindCodeRegistration());
+            Assert.Equal(0ul, helper.FindMetadataRegistration());
+            Assert.False(memory.PlusSearch(1, 1, 1));
+        }
+
+        [Fact]
+        public void SectionHelper_MetadataV27_IncompleteCandidateLayoutAtEndOfData_FindRegistrationsAndPlusSearchCompleteWithoutException()
+        {
+            // Case from Bot Review: Metadata v27 with extent 1029 (5 bytes: first int32 equals typeDefinitionsCount = 1)
+            // Tests FindMetadataRegistrationV21() boundary when advancing and reading subsequent candidate fields
+            var segment = (offset: 1024u, data: new byte[] { 1, 0, 0, 0, 0 });
+            var wasmBytes = BuildWasmModuleWithCustomPayload(1102, segment);
+
+            using var wasm = new WebAssembly(new MemoryStream(wasmBytes));
+            using var memory = wasm.CreateMemory();
+            memory.Version = 27.0;
+
+            Assert.Equal(1029ul, memory.Length);
+
+            var helper = memory.GetSectionHelper(1, 1, 1);
+            Assert.NotNull(helper);
+            Assert.Single(helper.Data);
+
+            Assert.Equal(0ul, helper.FindCodeRegistration());
+            Assert.Equal(0ul, helper.FindMetadataRegistration());
+            Assert.False(memory.PlusSearch(1, 1, 1));
+        }
+
+        private static byte[] BuildWasmModuleWithCustomPayload(int customSectionSize, params (uint offset, byte[] data)[] segments)
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+            writer.Write(new byte[] { 0, 0x61, 0x73, 0x6D, 1, 0, 0, 0 });
+            writer.Write(new byte[] { 5, 3, 1, 0, 1 }); // memory: 1 page
+
+            if (customSectionSize > 0)
+            {
+                writer.Write((byte)0); // Custom section ID 0
+                WriteULeb128(writer, (uint)customSectionSize);
+                writer.Write(new byte[customSectionSize]);
+            }
+
+            using var payloadMs = new MemoryStream();
+            using var payloadWriter = new BinaryWriter(payloadMs);
+            WriteULeb128(payloadWriter, (uint)(segments?.Length ?? 0));
+            if (segments != null)
+            {
+                for (int i = 0; i < segments.Length; i++)
+                {
+                    var (offset, data) = segments[i];
+                    WriteULeb128(payloadWriter, 0); // memory index
+                    payloadWriter.Write((byte)0x41); // i32.const
+                    WriteULeb128(payloadWriter, offset);
+                    payloadWriter.Write((byte)0x0B); // end
+                    WriteULeb128(payloadWriter, (uint)(data?.Length ?? 0));
+                    if (data != null && data.Length > 0)
+                    {
+                        payloadWriter.Write(data);
+                    }
+                }
+            }
+            var payload = payloadMs.ToArray();
+            writer.Write((byte)11); // Section ID 11 (Data section)
+            WriteULeb128(writer, (uint)payload.Length);
+            writer.Write(payload);
+
+            return ms.ToArray();
+        }
+
         private static byte[] BuildWasmModule(params (uint offset, byte[] data)[] segments)
         {
             return BuildWasmModuleRawSegments(writer =>
