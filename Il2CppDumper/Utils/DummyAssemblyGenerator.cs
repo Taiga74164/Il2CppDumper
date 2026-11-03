@@ -504,37 +504,308 @@ namespace Il2CppDumper
             customAttributes.Add(customAttribute);
         }
 
-        private static bool TrySetConstant(FieldDefinition fieldDefinition, TypeReference typeReference, object value)
+        internal static bool TrySetConstant(FieldDefinition fieldDefinition, TypeReference typeReference, object value)
         {
-            if (!CanWriteConstant(typeReference))
+            if (!TryNormalizeConstant(typeReference, value, out var normalizedValue))
             {
                 return false;
             }
-            fieldDefinition.Constant = value;
+            fieldDefinition.Constant = normalizedValue;
             return true;
         }
 
-        private static bool TrySetConstant(ParameterDefinition parameterDefinition, TypeReference typeReference, object value)
+        internal static bool TrySetConstant(ParameterDefinition parameterDefinition, TypeReference typeReference, object value)
         {
-            if (!CanWriteConstant(typeReference))
+            if (!TryNormalizeConstant(typeReference, value, out var normalizedValue))
             {
                 return false;
             }
-            parameterDefinition.Constant = value;
+            parameterDefinition.Constant = normalizedValue;
             return true;
         }
 
-        private static bool CanWriteConstant(TypeReference typeReference)
+        internal static bool CanWriteConstant(TypeReference typeReference)
         {
             if (typeReference == null)
             {
                 return false;
             }
+            typeReference = UnwrapType(typeReference);
             if (IsPrimitiveConstantType(typeReference.FullName))
             {
                 return true;
             }
+            return TryGetEnumUnderlyingType(typeReference, out _);
+        }
+
+        private static TypeReference UnwrapType(TypeReference typeReference)
+        {
+            while (typeReference is TypeSpecification spec)
+            {
+                typeReference = spec.ElementType;
+            }
+            return typeReference;
+        }
+
+        private static bool TryGetEnumUnderlyingType(TypeReference typeReference, out TypeReference underlyingType)
+        {
+            underlyingType = null;
+            if (typeReference == null)
+            {
+                return false;
+            }
+
+            typeReference = UnwrapType(typeReference);
+
+            TypeDefinition typeDefinition = null;
+            if (typeReference is TypeDefinition td)
+            {
+                typeDefinition = td;
+            }
+            else
+            {
+                try
+                {
+                    typeDefinition = typeReference.Resolve();
+                }
+                catch
+                {
+                    typeDefinition = null;
+                }
+            }
+
+            if (typeDefinition != null && typeDefinition.IsEnum)
+            {
+                foreach (var field in typeDefinition.Fields)
+                {
+                    if (!field.IsStatic && field.Name == "value__")
+                    {
+                        underlyingType = field.FieldType;
+                        return underlyingType != null && IsPrimitiveConstantType(underlyingType.FullName);
+                    }
+                }
+            }
+
             return false;
+        }
+
+        internal static bool TryNormalizeConstant(TypeReference typeReference, object value, out object normalizedValue)
+        {
+            normalizedValue = null;
+            if (typeReference == null)
+            {
+                return false;
+            }
+
+            typeReference = UnwrapType(typeReference);
+
+            if (TryGetEnumUnderlyingType(typeReference, out var underlyingType))
+            {
+                if (value == null)
+                {
+                    return false;
+                }
+
+                if (value.GetType().IsEnum)
+                {
+                    value = Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()));
+                }
+
+                return TryConvertIntegralConstant(value, underlyingType.FullName, out normalizedValue);
+            }
+
+            if (IsPrimitiveConstantType(typeReference.FullName))
+            {
+                if (typeReference.FullName == "System.String")
+                {
+                    if (value == null || value is string)
+                    {
+                        normalizedValue = value;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (value == null)
+                {
+                    return false;
+                }
+
+                if (typeReference.FullName is "System.Single")
+                {
+                    try
+                    {
+                        normalizedValue = Convert.ToSingle(value);
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+
+                if (typeReference.FullName is "System.Double")
+                {
+                    try
+                    {
+                        normalizedValue = Convert.ToDouble(value);
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+
+                return TryConvertIntegralConstant(value, typeReference.FullName, out normalizedValue);
+            }
+
+            return false;
+        }
+
+        private static bool TryConvertIntegralConstant(object value, string targetType, out object result)
+        {
+            result = null;
+            if (value == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                result = targetType switch
+                {
+                    "System.Byte" => value switch
+                    {
+                        byte b => b,
+                        sbyte sb => unchecked((byte)sb),
+                        short s => unchecked((byte)s),
+                        ushort us => unchecked((byte)us),
+                        int i => unchecked((byte)i),
+                        uint ui => unchecked((byte)ui),
+                        long l => unchecked((byte)l),
+                        ulong ul => unchecked((byte)ul),
+                        _ => Convert.ToByte(value)
+                    },
+                    "System.SByte" => value switch
+                    {
+                        sbyte sb => sb,
+                        byte b => unchecked((sbyte)b),
+                        short s => unchecked((sbyte)s),
+                        ushort us => unchecked((sbyte)us),
+                        int i => unchecked((sbyte)i),
+                        uint ui => unchecked((sbyte)ui),
+                        long l => unchecked((sbyte)l),
+                        ulong ul => unchecked((sbyte)ul),
+                        _ => Convert.ToSByte(value)
+                    },
+                    "System.Int16" => value switch
+                    {
+                        short s => s,
+                        byte b => (short)b,
+                        sbyte sb => (short)sb,
+                        ushort us => unchecked((short)us),
+                        int i => unchecked((short)i),
+                        uint ui => unchecked((short)ui),
+                        long l => unchecked((short)l),
+                        ulong ul => unchecked((short)ul),
+                        _ => Convert.ToInt16(value)
+                    },
+                    "System.UInt16" => value switch
+                    {
+                        ushort us => us,
+                        byte b => (ushort)b,
+                        sbyte sb => unchecked((ushort)sb),
+                        short s => unchecked((short)s),
+                        int i => unchecked((ushort)i),
+                        uint ui => unchecked((uint)ui),
+                        long l => unchecked((ushort)l),
+                        ulong ul => unchecked((ushort)ul),
+                        _ => Convert.ToUInt16(value)
+                    },
+                    "System.Int32" => value switch
+                    {
+                        int i => i,
+                        byte b => (int)b,
+                        sbyte sb => (int)sb,
+                        short s => (int)s,
+                        ushort us => (int)us,
+                        uint ui => unchecked((int)ui),
+                        long l => unchecked((int)l),
+                        ulong ul => unchecked((int)ul),
+                        _ => Convert.ToInt32(value)
+                    },
+                    "System.UInt32" => value switch
+                    {
+                        uint ui => ui,
+                        byte b => (uint)b,
+                        sbyte sb => unchecked((uint)sb),
+                        short s => unchecked((uint)s),
+                        ushort us => (uint)us,
+                        int i => unchecked((uint)i),
+                        long l => unchecked((uint)l),
+                        ulong ul => unchecked((uint)ul),
+                        _ => Convert.ToUInt32(value)
+                    },
+                    "System.Int64" => value switch
+                    {
+                        long l => l,
+                        byte b => (long)b,
+                        sbyte sb => (long)sb,
+                        short s => (long)s,
+                        ushort us => (long)us,
+                        int i => (long)i,
+                        uint ui => (long)ui,
+                        ulong ul => unchecked((long)ul),
+                        _ => Convert.ToInt64(value)
+                    },
+                    "System.UInt64" => value switch
+                    {
+                        ulong ul => ul,
+                        byte b => (ulong)b,
+                        sbyte sb => unchecked((ulong)sb),
+                        short s => unchecked((ulong)s),
+                        ushort us => (ulong)us,
+                        int i => unchecked((ulong)i),
+                        uint ui => (ulong)ui,
+                        long l => unchecked((ulong)l),
+                        _ => Convert.ToUInt64(value)
+                    },
+                    "System.Char" => value switch
+                    {
+                        char c => c,
+                        byte b => (char)b,
+                        sbyte sb => unchecked((char)sb),
+                        short s => unchecked((char)s),
+                        ushort us => (char)us,
+                        int i => unchecked((char)i),
+                        uint ui => unchecked((char)ui),
+                        long l => unchecked((char)l),
+                        ulong ul => unchecked((char)ul),
+                        _ => Convert.ToChar(value)
+                    },
+                    "System.Boolean" => value switch
+                    {
+                        bool b => b,
+                        byte b => b != 0,
+                        sbyte sb => sb != 0,
+                        short s => s != 0,
+                        ushort us => us != 0,
+                        int i => i != 0,
+                        uint ui => ui != 0,
+                        long l => l != 0,
+                        ulong ul => ul != 0,
+                        _ => Convert.ToBoolean(value)
+                    },
+                    _ => null
+                };
+                return result != null;
+            }
+            catch
+            {
+                result = null;
+                return false;
+            }
         }
 
         private static bool IsPrimitiveConstantType(string fullName)
