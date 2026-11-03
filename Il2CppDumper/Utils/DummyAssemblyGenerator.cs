@@ -504,29 +504,34 @@ namespace Il2CppDumper
             customAttributes.Add(customAttribute);
         }
 
-        private static bool TrySetConstant(FieldDefinition fieldDefinition, TypeReference typeReference, object value)
+        internal static bool TrySetConstant(FieldDefinition fieldDefinition, TypeReference typeReference, object value)
         {
-            if (!CanWriteConstant(typeReference))
+            if (!TryNormalizeConstant(typeReference, value, out var normalizedValue))
             {
                 return false;
             }
-            fieldDefinition.Constant = value;
+            fieldDefinition.Constant = normalizedValue;
             return true;
         }
 
-        private static bool TrySetConstant(ParameterDefinition parameterDefinition, TypeReference typeReference, object value)
+        internal static bool TrySetConstant(ParameterDefinition parameterDefinition, TypeReference typeReference, object value)
         {
-            if (!CanWriteConstant(typeReference))
+            if (!TryNormalizeConstant(typeReference, value, out var normalizedValue))
             {
                 return false;
             }
-            parameterDefinition.Constant = value;
+            parameterDefinition.Constant = normalizedValue;
             return true;
         }
 
-        private static bool CanWriteConstant(TypeReference typeReference)
+        internal static bool CanWriteConstant(TypeReference typeReference)
         {
             if (typeReference == null)
+            {
+                return false;
+            }
+            typeReference = UnwrapModifiers(typeReference);
+            if (typeReference is TypeSpecification or GenericParameter)
             {
                 return false;
             }
@@ -534,7 +539,279 @@ namespace Il2CppDumper
             {
                 return true;
             }
+            return TryGetEnumUnderlyingType(typeReference, out _);
+        }
+
+        private static TypeReference UnwrapModifiers(TypeReference typeReference)
+        {
+            while (typeReference is OptionalModifierType or RequiredModifierType)
+            {
+                typeReference = ((TypeSpecification)typeReference).ElementType;
+            }
+            return typeReference;
+        }
+
+        internal static bool TryGetEnumUnderlyingType(TypeReference typeReference, out TypeReference underlyingType)
+        {
+            underlyingType = null;
+            if (typeReference == null)
+            {
+                return false;
+            }
+
+            typeReference = UnwrapModifiers(typeReference);
+
+            if (typeReference is TypeSpecification or GenericParameter)
+            {
+                return false;
+            }
+
+            TypeDefinition typeDefinition = null;
+            if (typeReference is TypeDefinition td)
+            {
+                typeDefinition = td;
+            }
+            else
+            {
+                try
+                {
+                    typeDefinition = typeReference.Resolve();
+                }
+                catch
+                {
+                    typeDefinition = null;
+                }
+            }
+
+            if (typeDefinition != null && typeDefinition.IsEnum)
+            {
+                foreach (var field in typeDefinition.Fields)
+                {
+                    if (!field.IsStatic && field.Name == "value__")
+                    {
+                        var candidate = UnwrapModifiers(field.FieldType);
+                        if (candidate != null && !(candidate is TypeSpecification or GenericParameter) && IsEnumUnderlyingType(candidate.FullName))
+                        {
+                            underlyingType = candidate;
+                            return true;
+                        }
+                    }
+                }
+            }
+
             return false;
+        }
+
+        private static bool IsEnumUnderlyingType(string fullName)
+        {
+            return fullName is "System.Byte"
+                or "System.SByte"
+                or "System.Int16"
+                or "System.UInt16"
+                or "System.Int32"
+                or "System.UInt32"
+                or "System.Int64"
+                or "System.UInt64";
+        }
+
+        internal static bool TryNormalizeConstant(TypeReference typeReference, object value, out object normalizedValue)
+        {
+            normalizedValue = null;
+            if (typeReference == null)
+            {
+                return false;
+            }
+
+            typeReference = UnwrapModifiers(typeReference);
+
+            if (typeReference is TypeSpecification or GenericParameter)
+            {
+                return false;
+            }
+
+            if (TryGetEnumUnderlyingType(typeReference, out var underlyingType))
+            {
+                return TryConvertRangeCheckedInteger(value, underlyingType.FullName, out normalizedValue);
+            }
+
+            if (IsPrimitiveConstantType(typeReference.FullName))
+            {
+                if (typeReference.FullName == "System.String")
+                {
+                    if (value == null || value is string)
+                    {
+                        normalizedValue = value;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (value == null)
+                {
+                    return false;
+                }
+
+                if (typeReference.FullName == "System.Boolean")
+                {
+                    if (value is bool b)
+                    {
+                        normalizedValue = b;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (typeReference.FullName == "System.Char")
+                {
+                    if (value is char c)
+                    {
+                        normalizedValue = c;
+                        return true;
+                    }
+                    if (TryConvertRangeCheckedInteger(value, "System.UInt16", out var ushortVal))
+                    {
+                        normalizedValue = (char)(ushort)ushortVal;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (typeReference.FullName == "System.Single")
+                {
+                    if (value is float f)
+                    {
+                        normalizedValue = f;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (typeReference.FullName == "System.Double")
+                {
+                    if (value is double d)
+                    {
+                        normalizedValue = d;
+                        return true;
+                    }
+                    if (value is float f)
+                    {
+                        normalizedValue = (double)f;
+                        return true;
+                    }
+                    return false;
+                }
+
+                return TryConvertRangeCheckedInteger(value, typeReference.FullName, out normalizedValue);
+            }
+
+            return false;
+        }
+
+        private static bool TryConvertRangeCheckedInteger(object value, string targetType, out object result)
+        {
+            result = null;
+            if (value == null)
+            {
+                return false;
+            }
+
+            if (value.GetType().IsEnum)
+            {
+                value = Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()));
+            }
+
+            bool isSigned;
+            long s = 0;
+            ulong u = 0;
+
+            switch (value)
+            {
+                case sbyte sb: s = sb; isSigned = true; break;
+                case short s16: s = s16; isSigned = true; break;
+                case int i: s = i; isSigned = true; break;
+                case long l: s = l; isSigned = true; break;
+                case byte b: u = b; isSigned = false; break;
+                case ushort u16: u = u16; isSigned = false; break;
+                case uint u32: u = u32; isSigned = false; break;
+                case ulong u64: u = u64; isSigned = false; break;
+                default:
+                    return false;
+            }
+
+            switch (targetType)
+            {
+                case "System.Byte":
+                    if (isSigned ? (s >= 0 && s <= byte.MaxValue) : (u <= byte.MaxValue))
+                    {
+                        result = isSigned ? (byte)s : (byte)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.SByte":
+                    if (isSigned ? (s >= sbyte.MinValue && s <= sbyte.MaxValue) : (u <= (ulong)sbyte.MaxValue))
+                    {
+                        result = isSigned ? (sbyte)s : (sbyte)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.Int16":
+                    if (isSigned ? (s >= short.MinValue && s <= short.MaxValue) : (u <= (ulong)short.MaxValue))
+                    {
+                        result = isSigned ? (short)s : (short)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.UInt16":
+                    if (isSigned ? (s >= 0 && s <= ushort.MaxValue) : (u <= ushort.MaxValue))
+                    {
+                        result = isSigned ? (ushort)s : (ushort)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.Int32":
+                    if (isSigned ? (s >= int.MinValue && s <= int.MaxValue) : (u <= (ulong)int.MaxValue))
+                    {
+                        result = isSigned ? (int)s : (int)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.UInt32":
+                    if (isSigned ? (s >= 0 && s <= uint.MaxValue) : (u <= uint.MaxValue))
+                    {
+                        result = isSigned ? (uint)s : (uint)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.Int64":
+                    if (isSigned)
+                    {
+                        result = s;
+                        return true;
+                    }
+                    if (u <= (ulong)long.MaxValue)
+                    {
+                        result = (long)u;
+                        return true;
+                    }
+                    return false;
+
+                case "System.UInt64":
+                    if (isSigned ? (s >= 0) : true)
+                    {
+                        result = isSigned ? (ulong)s : u;
+                        return true;
+                    }
+                    return false;
+
+                default:
+                    return false;
+            }
         }
 
         private static bool IsPrimitiveConstantType(string fullName)

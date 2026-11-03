@@ -473,26 +473,42 @@ namespace Il2CppDumper
                 : module.ImportReference(fieldReference);
         }
 
-        private static void SanitizeConstants(AssemblyDefinition assembly)
+        internal static void SanitizeConstants(AssemblyDefinition assembly)
         {
             foreach (var type in GetAllTypes(assembly.MainModule.Types))
             {
                 foreach (var field in type.Fields)
                 {
-                    if (field.HasConstant && !CanWriteConstant(field.FieldType))
+                    if (field.HasConstant)
                     {
-                        field.HasConstant = false;
-                        field.Constant = null;
+                        if (DummyAssemblyGenerator.TryNormalizeConstant(field.FieldType, field.Constant, out var normalized))
+                        {
+                            field.Constant = normalized;
+                        }
+                        else
+                        {
+                            field.Constant = null;
+                            field.HasConstant = false;
+                            field.Attributes &= ~FieldAttributes.HasDefault;
+                        }
                     }
                 }
                 foreach (var method in type.Methods)
                 {
                     foreach (var parameter in method.Parameters)
                     {
-                        if (parameter.HasConstant && !CanWriteConstant(parameter.ParameterType))
+                        if (parameter.HasConstant)
                         {
-                            parameter.HasConstant = false;
-                            parameter.Constant = null;
+                            if (DummyAssemblyGenerator.TryNormalizeConstant(parameter.ParameterType, parameter.Constant, out var normalized))
+                            {
+                                parameter.Constant = normalized;
+                            }
+                            else
+                            {
+                                parameter.Constant = null;
+                                parameter.HasConstant = false;
+                                parameter.Attributes &= ~ParameterAttributes.HasDefault;
+                            }
                         }
                     }
                 }
@@ -511,21 +527,9 @@ namespace Il2CppDumper
             }
         }
 
-        private static bool CanWriteConstant(TypeReference typeReference)
+        internal static bool CanWriteConstant(TypeReference typeReference)
         {
-            return typeReference?.FullName is "System.Boolean"
-                or "System.Char"
-                or "System.SByte"
-                or "System.Byte"
-                or "System.Int16"
-                or "System.UInt16"
-                or "System.Int32"
-                or "System.UInt32"
-                or "System.Int64"
-                or "System.UInt64"
-                or "System.Single"
-                or "System.Double"
-                or "System.String";
+            return DummyAssemblyGenerator.CanWriteConstant(typeReference);
         }
     }
 }
