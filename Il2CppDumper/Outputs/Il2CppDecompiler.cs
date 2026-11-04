@@ -471,8 +471,10 @@ namespace Il2CppDumper
                         {
                             return string.Empty;
                         }
+                        var availableCount = (int)Math.Min((long)reader.Count, (long)reader.AvailableConstructors);
+                        var truncatedCount = (int)Math.Min((long)int.MaxValue, Math.Max(0L, (long)reader.Count - availableCount));
                         var sb = new StringBuilder();
-                        for (var i = 0; i < reader.Count; i++)
+                        for (var i = 0; i < availableCount; i++)
                         {
                             var attributeTypeName = reader.GetAttributeTypeName(i);
                             try
@@ -487,7 +489,7 @@ namespace Il2CppDumper
                             {
                                 CustomAttributeFailedCount++;
                                 log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
-                                for (var j = i + 1; j < reader.Count; j++)
+                                for (var j = i + 1; j < availableCount; j++)
                                 {
                                     var remainingTypeName = reader.GetAttributeTypeName(j);
                                     CustomAttributeFailedCount++;
@@ -495,9 +497,14 @@ namespace Il2CppDumper
                                 }
                                 break;
                             }
-
-
                         }
+
+                        if (truncatedCount > 0)
+                        {
+                            CustomAttributeFailedCount += truncatedCount;
+                            log.LogWarning($"WARNING: Custom attribute blob declares {reader.Count} attribute(s) but buffer only contains {availableCount} constructor record(s) on '{owner}' (token 0x{token:X8}); {truncatedCount} missing attribute(s) skipped.");
+                        }
+
                         return sb.ToString();
                     }
                     catch (Exception ex)

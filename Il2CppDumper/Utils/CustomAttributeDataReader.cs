@@ -12,6 +12,8 @@ namespace Il2CppDumper
         private long dataBuffer;
 
         public uint Count { get; set; }
+        public long CtorBufferStart => ctorBufferStart;
+        public int AvailableConstructors => (int)System.Math.Max(0, (BaseStream.Length - ctorBufferStart) / 4);
 
         public CustomAttributeDataReader(Il2CppExecutor executor, byte[] buff) : base(new MemoryStream(buff))
         {

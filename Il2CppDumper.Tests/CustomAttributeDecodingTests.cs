@@ -205,6 +205,17 @@ namespace Il2CppDumper.Tests
             return ms.ToArray();
         }
 
+        private static byte[] CreateSyntheticBlobWithExaggeratedCount()
+        {
+            using var ms = new MemoryStream();
+            using var bw = new BinaryWriter(ms);
+            // Declared Count = 100, but buffer only has 1 constructor record (4 bytes)
+            bw.Write((byte)100);
+            // ctorIndex 0 (MalformedAttribute) -> method index 1
+            bw.Write((int)1);
+            return ms.ToArray();
+        }
+
         private static byte[] CreateSyntheticValidBlob()
         {
             using var ms = new MemoryStream();
@@ -277,6 +288,35 @@ namespace Il2CppDumper.Tests
             // Counts must accurately track written (0) vs failed/skipped (2)
             Assert.Equal(0, decompiler.CustomAttributeWrittenCount);
             Assert.Equal(2, decompiler.CustomAttributeFailedCount);
+        }
+
+        [Fact]
+        public void GetCustomAttribute_WithCountExceedingAvailableConstructors_TerminatesBoundedAndMaintainsAccurateCounts()
+        {
+            var blob = CreateSyntheticBlobWithExaggeratedCount();
+            var (metadata, il2Cpp, imageDef) = CreateEnvironment(blob);
+            var executor = new Il2CppExecutor(metadata, il2Cpp);
+            var decompiler = new Il2CppDecompiler(executor);
+
+            var capturedWarnings = new List<string>();
+            decompiler.log = new DecompilerLogger(msg => capturedWarnings.Add(msg));
+
+            var output = decompiler.GetCustomAttribute(imageDef, 0, 0x04000001, padding: "", owner: "TargetClass.targetField");
+
+            // Output must be empty
+            Assert.Empty(output);
+
+            // Exactly 2 warnings: 1 for the failed entry and 1 bounded summary for the 99 truncated entries
+            Assert.Equal(2, capturedWarnings.Count);
+            Assert.Contains("MalformedAttribute", capturedWarnings[0]);
+            Assert.Contains("TargetClass.targetField", capturedWarnings[0]);
+            Assert.Contains("declares 100 attribute(s) but buffer only contains 1 constructor record(s)", capturedWarnings[1]);
+            Assert.Contains("99 missing attribute(s) skipped", capturedWarnings[1]);
+            Assert.Contains("TargetClass.targetField", capturedWarnings[1]);
+
+            // Counts must accurately match declared count (100 total failed/skipped, 0 written)
+            Assert.Equal(0, decompiler.CustomAttributeWrittenCount);
+            Assert.Equal(100, decompiler.CustomAttributeFailedCount);
         }
 
         [Fact]
