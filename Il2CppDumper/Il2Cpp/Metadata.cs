@@ -876,13 +876,19 @@ namespace Il2CppDumper
 
         public string GetStringLiteralFromIndex(uint index)
         {
-            if (Version >= 35 && index + 1 >= stringLiterals.Length)
+            if (stringLiterals == null || index >= stringLiterals.Length)
             {
                 return string.Empty;
             }
+
             var stringLiteral = stringLiterals[index];
             var dataOffset = Version >= 38 ? (uint)header.stringLiteralData.offset : header.stringLiteralDataOffset;
-            Position = (uint)(dataOffset + stringLiteral.dataIndex);
+            var dataSize = Version >= 38 ? header.stringLiteralData.sectionSize : header.stringLiteralDataSize;
+
+            if (dataSize <= 0 || stringLiteral.dataIndex < 0 || stringLiteral.dataIndex >= dataSize)
+            {
+                return string.Empty;
+            }
 
             int length;
             if (Version <= 31)
@@ -892,23 +898,57 @@ namespace Il2CppDumper
             }
             else if (Version >= 35)
             {
-                // v35+：长度由下一个字符串的 data index 决定
-                var nextStringLiteral = stringLiterals[index + 1];
-                length = (int)(nextStringLiteral.dataIndex - stringLiteral.dataIndex);
+                // v35+：长度由下一个字符串的 data index 决定；最后一个字符串的长度由 section 剩余空间决定
+                if (index + 1 < stringLiterals.Length)
+                {
+                    var nextStringLiteral = stringLiterals[index + 1];
+                    length = (int)(nextStringLiteral.dataIndex - stringLiteral.dataIndex);
+                }
+                else
+                {
+                    length = dataSize - stringLiteral.dataIndex;
+                }
             }
             else
             {
                 // v31-v34：需要读取直到 null 终止符
-                var currentPos = Position;
-                length = 0;
-                while (ReadByte() != 0)
+                var currentPos = (ulong)dataOffset + (ulong)stringLiteral.dataIndex;
+                if (currentPos >= Length)
                 {
-                    length++;
+                    return string.Empty;
                 }
                 Position = currentPos;
+                length = 0;
+                var terminated = false;
+                while (stringLiteral.dataIndex + length < dataSize && Position < Length)
+                {
+                    if (ReadByte() == 0)
+                    {
+                        terminated = true;
+                        break;
+                    }
+                    length++;
+                }
+                if (!terminated)
+                {
+                    return string.Empty;
+                }
             }
 
-            return Encoding.UTF8.GetString(ReadBytes(length));
+            if (length < 0 || (long)stringLiteral.dataIndex + length > dataSize || (ulong)dataOffset + (ulong)stringLiteral.dataIndex + (ulong)length > Length)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                Position = (ulong)dataOffset + (ulong)stringLiteral.dataIndex;
+                return Encoding.UTF8.GetString(ReadBytes(length));
+            }
+            catch (EndOfStreamException)
+            {
+                return string.Empty;
+            }
         }
 
         private void ProcessingMetadataUsage()
