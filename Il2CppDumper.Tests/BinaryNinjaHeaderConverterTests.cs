@@ -187,6 +187,57 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
+        public void Convert_EmptyBaseStructWithoutUnrelatedEmptyStruct_NormalizesSuperMemberToVoidPointer()
+        {
+            const string input = "struct Base {\n};\n" +
+                                "struct Derived : Base {\n\tint32_t y;\n};\n";
+
+            var output = RunConverter(input);
+            var normalized = NormalizeNewlines(output);
+
+            Assert.DoesNotContain("struct Base", normalized);
+            Assert.DoesNotContain("Base super;", normalized);
+            Assert.DoesNotContain(": Base {", normalized);
+            Assert.Contains("struct Derived {\n\tvoid *super;\n\tint32_t y;\n};", normalized);
+        }
+
+        [Fact]
+        public void Convert_EmptyBaseStructWithPrecedingUnrelatedEmptyStruct_NormalizesSuperMemberToVoidPointer()
+        {
+            const string input = "struct Unrelated {\n};\n" +
+                                "struct Base {\n};\n" +
+                                "struct Derived : Base {\n\tint32_t y;\n};\n";
+
+            var output = RunConverter(input);
+            var normalized = NormalizeNewlines(output);
+
+            Assert.DoesNotContain("struct Unrelated", normalized);
+            Assert.DoesNotContain("struct Base", normalized);
+            Assert.DoesNotContain("Base super;", normalized);
+            Assert.DoesNotContain(": Base {", normalized);
+            Assert.Contains("struct Derived {\n\tvoid *super;\n\tint32_t y;\n};", normalized);
+        }
+
+        [Fact]
+        public void Convert_EmptyBaseStructWithSurroundingEmptyStructs_NormalizesSuperMemberToVoidPointer()
+        {
+            const string input = "struct PrefixEmpty {\n};\n" +
+                                "struct Base {\n};\n" +
+                                "struct SuffixEmpty {\n};\n" +
+                                "struct Derived : Base {\n\tint32_t y;\n};\n";
+
+            var output = RunConverter(input);
+            var normalized = NormalizeNewlines(output);
+
+            Assert.DoesNotContain("struct PrefixEmpty", normalized);
+            Assert.DoesNotContain("struct Base", normalized);
+            Assert.DoesNotContain("struct SuffixEmpty", normalized);
+            Assert.DoesNotContain("Base super;", normalized);
+            Assert.DoesNotContain(": Base {", normalized);
+            Assert.Contains("struct Derived {\n\tvoid *super;\n\tint32_t y;\n};", normalized);
+        }
+
+        [Fact]
         public void Convert_MultipleInheritanceHierarchies_NormalizesAllDerivedTypes()
         {
             const string input = "struct GrandParent {\n\tint32_t a;\n};\n" +
