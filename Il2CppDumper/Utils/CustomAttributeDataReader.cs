@@ -8,6 +8,7 @@ namespace Il2CppDumper
         private readonly Il2CppExecutor executor;
         private readonly Metadata metadata;
         private long ctorBuffer;
+        private readonly long ctorBufferStart;
         private long dataBuffer;
 
         public uint Count { get; set; }
@@ -18,7 +19,41 @@ namespace Il2CppDumper
             metadata = executor.metadata;
             Count = this.ReadCompressedUInt32();
             ctorBuffer = BaseStream.Position;
+            ctorBufferStart = ctorBuffer;
             dataBuffer = BaseStream.Position + Count * 4;
+        }
+
+        public string GetAttributeTypeName(int index)
+        {
+            var savedPos = BaseStream.Position;
+            try
+            {
+                BaseStream.Position = ctorBufferStart + index * 4;
+                var ctorIndex = ReadInt32();
+                if (ctorIndex >= 0 && ctorIndex < metadata.methodDefs.Length)
+                {
+                    var methodDef = metadata.methodDefs[ctorIndex];
+                    if (methodDef.declaringType >= 0 && methodDef.declaringType < metadata.typeDefs.Length)
+                    {
+                        var typeDef = metadata.typeDefs[methodDef.declaringType];
+                        return metadata.GetStringFromIndex(typeDef.nameIndex);
+                    }
+                }
+                return $"ctor_{ctorIndex}";
+            }
+            catch
+            {
+                return "UnknownAttribute";
+            }
+            finally
+            {
+                BaseStream.Position = savedPos;
+            }
+        }
+
+        public void AdvanceToNextAttribute(int nextIndex)
+        {
+            ctorBuffer = ctorBufferStart + nextIndex * 4;
         }
 
         public string GetStringCustomAttributeData()
