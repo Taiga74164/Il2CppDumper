@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -42,14 +42,39 @@ namespace Il2CppDumper
                         {
                             metadataPath = arg;
                         }
-                        else
+                        else if (il2cppPath == null)
                         {
                             il2cppPath = arg;
                         }
                     }
                     else if (Directory.Exists(arg))
                     {
-                        outputDir = Path.GetFullPath(arg) + Path.DirectorySeparatorChar;
+                        var fullPath = Path.GetFullPath(arg);
+                        if (!fullPath.EndsWith(Path.DirectorySeparatorChar.ToString()) && !fullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+                        {
+                            fullPath += Path.DirectorySeparatorChar;
+                        }
+                        outputDir = fullPath;
+                    }
+                }
+                if (args.Length == 3 && outputDir == null && il2cppPath != null && metadataPath != null)
+                {
+                    var outDirArg = args.First(x => x != il2cppPath && x != metadataPath);
+                    try
+                    {
+                        Directory.CreateDirectory(outDirArg);
+                        var fullPath = Path.GetFullPath(outDirArg);
+                        if (!fullPath.EndsWith(Path.DirectorySeparatorChar.ToString()) && !fullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+                        {
+                            fullPath += Path.DirectorySeparatorChar;
+                        }
+                        outputDir = fullPath;
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"ERROR: Failed to create output directory: {e.Message}");
+                        Environment.ExitCode = 1;
+                        return 1;
                     }
                 }
             }
