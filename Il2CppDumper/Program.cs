@@ -11,7 +11,7 @@ namespace Il2CppDumper
         private static Config config;
 
         [STAThread]
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
             config = JsonSerializer.Deserialize<Config>(File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + @"config.json"));
             string il2cppPath = null;
@@ -23,13 +23,13 @@ namespace Il2CppDumper
                 if (args[0] == "-h" || args[0] == "--help" || args[0] == "/?" || args[0] == "/h")
                 {
                     ShowHelp();
-                    return;
+                    return 0;
                 }
             }
             if (args.Length > 3)
             {
                 ShowHelp();
-                return;
+                return 1;
             }
             if (args.Length > 1)
             {
@@ -38,7 +38,7 @@ namespace Il2CppDumper
                     if (File.Exists(arg))
                     {
                         var file = File.ReadAllBytes(arg);
-                        if (BitConverter.ToUInt32(file, 0) == 0xFAB11BAF)
+                        if (file.Length >= 4 && BitConverter.ToUInt32(file, 0) == 0xFAB11BAF)
                         {
                             metadataPath = arg;
                         }
@@ -72,23 +72,25 @@ namespace Il2CppDumper
                         }
                         else
                         {
-                            return;
+                            return 0;
                         }
                     }
                     else
                     {
-                        return;
+                        return 0;
                     }
                 }
             }
             if (il2cppPath == null)
             {
                 ShowHelp();
-                return;
+                return 1;
             }
+            var exitCode = 0;
             if (metadataPath == null)
             {
                 Console.WriteLine($"ERROR: Metadata file not found or encrypted.");
+                exitCode = 1;
             }
             else
             {
@@ -96,19 +98,36 @@ namespace Il2CppDumper
                 {
                     if (Init(il2cppPath, metadataPath, out var metadata, out var il2Cpp))
                     {
-                        Dump(metadata, il2Cpp, outputDir);
+                        if (!Dump(metadata, il2Cpp, outputDir))
+                        {
+                            exitCode = 1;
+                        }
+                    }
+                    else
+                    {
+                        exitCode = 1;
                     }
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine(e);
+                    exitCode = 1;
                 }
             }
-            if (config.RequireAnyKey)
+            if (config.RequireAnyKey && !Console.IsInputRedirected)
             {
                 Console.WriteLine("Press any key to exit...");
-                Console.ReadKey(true);
+                try
+                {
+                    Console.ReadKey(true);
+                }
+                catch
+                {
+                    // ignored
+                }
             }
+            Environment.ExitCode = exitCode;
+            return exitCode;
         }
 
         static void ShowHelp()
@@ -267,8 +286,9 @@ namespace Il2CppDumper
             return true;
         }
 
-        private static void Dump(Metadata metadata, Il2Cpp il2Cpp, string outputDir)
+        private static bool Dump(Metadata metadata, Il2Cpp il2Cpp, string outputDir)
         {
+            var success = true;
             Console.WriteLine("Dumping...");
             var executor = new Il2CppExecutor(metadata, il2Cpp);
             var decompiler = new Il2CppDecompiler(executor);
@@ -287,6 +307,7 @@ namespace Il2CppDumper
                 {
                     Console.WriteLine(e);
                     Console.WriteLine("ERROR: Some errors in generating struct");
+                    success = false;
                 }
             }
             if (config.GenerateDummyDll)
@@ -301,8 +322,10 @@ namespace Il2CppDumper
                 {
                     Console.WriteLine(e);
                     Console.WriteLine("ERROR: Some errors in generating dummy dll");
+                    success = false;
                 }
             }
+            return success;
         }
     }
 }
