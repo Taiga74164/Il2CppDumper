@@ -87,7 +87,7 @@ All the configuration options are located in `config.json`
 Available options:
 
 * `DumpMethod`, `DumpField`, `DumpProperty`, `DumpAttribute`, `DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`
-  * Whether to output these information to dump.cs
+  * Whether to output these information to dump.cs (`DumpProperty` and `DumpAttribute` default to `true`)
 
 * `GenerateDummyDll`, `GenerateStruct`
   * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, and `il2cpp.h`)

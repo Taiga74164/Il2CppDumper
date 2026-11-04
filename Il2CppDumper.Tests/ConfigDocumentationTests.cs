@@ -58,6 +58,26 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
+        public void Readme_English_DocumentsDumpPropertyAndDumpAttributeDefaults()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("`DumpProperty` and `DumpAttribute` default to `true`", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsDumpPropertyAndDumpAttributeDefaults()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("`DumpProperty` \u548c `DumpAttribute` \u9ed8\u8ba4\u503c\u4e3a `true`", content);
+        }
+
+        [Fact]
         public void Config_DeserializingGenerateStructFalse_DisablesGenerationGate()
         {
             // Verifies the exact scenario from Issue #11:
