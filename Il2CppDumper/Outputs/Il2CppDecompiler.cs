@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,12 +7,30 @@ using static Il2CppDumper.Il2CppConstants;
 
 namespace Il2CppDumper
 {
+    public class DecompilerLogger
+    {
+        private readonly Action<string> logWarningAction;
+
+        public DecompilerLogger(Action<string> logWarningAction = null)
+        {
+            this.logWarningAction = logWarningAction ?? (msg => Console.WriteLine(msg));
+        }
+
+        public virtual void LogWarning(string message)
+        {
+            logWarningAction(message);
+        }
+    }
+
     public class Il2CppDecompiler
     {
         private readonly Il2CppExecutor executor;
         private readonly Metadata metadata;
         private readonly Il2Cpp il2Cpp;
         private readonly Dictionary<Il2CppMethodDefinition, string> methodModifiers;
+        public DecompilerLogger log { get; set; } = new();
+        public long CustomAttributeWrittenCount { get; private set; }
+        public long CustomAttributeFailedCount { get; private set; }
 
         public Il2CppDecompiler(Il2CppExecutor il2CppExecutor)
         {
@@ -25,6 +43,8 @@ namespace Il2CppDumper
         public bool Decompile(Config config, string outputDir)
         {
             var success = true;
+            CustomAttributeWrittenCount = 0;
+            CustomAttributeFailedCount = 0;
             var writer = new StreamWriter(new FileStream(outputDir + "dump.cs", FileMode.Create), new UTF8Encoding(false));
             //dump image
             for (var imageIndex = 0; imageIndex < metadata.imageDefs.Length; imageIndex++)
@@ -63,7 +83,7 @@ namespace Il2CppDumper
                         writer.Write($"\n// Namespace: {metadata.GetStringFromIndex(typeDef.namespaceIndex)}\n");
                         if (config.DumpAttribute)
                         {
-                            writer.Write(GetCustomAttribute(imageDef, typeDef.customAttributeIndex, typeDef.token));
+                            writer.Write(GetCustomAttribute(imageDef, typeDef.customAttributeIndex, typeDef.token, owner: metadata.GetStringFromIndex(typeDef.nameIndex)));
                         }
                         if (config.DumpAttribute && (typeDef.flags & TYPE_ATTRIBUTE_SERIALIZABLE) != 0)
                             writer.Write("[Serializable]\n");
@@ -124,7 +144,7 @@ namespace Il2CppDumper
                                 var isConst = false;
                                 if (config.DumpAttribute)
                                 {
-                                    writer.Write(GetCustomAttribute(imageDef, fieldDef.customAttributeIndex, fieldDef.token, "\t"));
+                                    writer.Write(GetCustomAttribute(imageDef, fieldDef.customAttributeIndex, fieldDef.token, "\t", $"{metadata.GetStringFromIndex(typeDef.nameIndex)}.{metadata.GetStringFromIndex(fieldDef.nameIndex)}"));
                                 }
                                 writer.Write("\t");
                                 var access = fieldType.attrs & FIELD_ATTRIBUTE_FIELD_ACCESS_MASK;
@@ -209,7 +229,7 @@ namespace Il2CppDumper
                                 var propertyDef = metadata.propertyDefs[i];
                                 if (config.DumpAttribute)
                                 {
-                                    writer.Write(GetCustomAttribute(imageDef, propertyDef.customAttributeIndex, propertyDef.token, "\t"));
+                                    writer.Write(GetCustomAttribute(imageDef, propertyDef.customAttributeIndex, propertyDef.token, "\t", $"{metadata.GetStringFromIndex(typeDef.nameIndex)}.{metadata.GetStringFromIndex(propertyDef.nameIndex)}"));
                                 }
                                 writer.Write("\t");
                                 if (propertyDef.get >= 0)
@@ -254,7 +274,7 @@ namespace Il2CppDumper
                                 var isAbstract = (methodDef.flags & METHOD_ATTRIBUTE_ABSTRACT) != 0;
                                 if (config.DumpAttribute)
                                 {
-                                    writer.Write(GetCustomAttribute(imageDef, methodDef.customAttributeIndex, methodDef.token, "\t"));
+                                    writer.Write(GetCustomAttribute(imageDef, methodDef.customAttributeIndex, methodDef.token, "\t", $"{metadata.GetStringFromIndex(typeDef.nameIndex)}.{metadata.GetStringFromIndex(methodDef.nameIndex)}"));
                                 }
                                 if (config.DumpMethodOffset)
                                 {
@@ -402,17 +422,22 @@ namespace Il2CppDumper
                     writer.Write("*/\n}\n");
                 }
             }
+            if (config.DumpAttribute && CustomAttributeFailedCount > 0)
+            {
+                log.LogWarning($"WARNING: Custom attribute decoding completed with {CustomAttributeFailedCount} failure(s) ({CustomAttributeWrittenCount} written, {CustomAttributeFailedCount} skipped).");
+            }
             writer.Close();
             return success;
         }
 
-        public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "")
+        public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "", string owner = null)
         {
             if (il2Cpp.Version < 21)
                 return string.Empty;
             var attributeIndex = metadata.GetCustomAttributeIndex(imageDef, customAttributeIndex, token);
             if (attributeIndex >= 0)
             {
+                owner ??= ResolveOwnerFromToken(token);
                 if (il2Cpp.Version < 29)
                 {
                     var methodPointer = executor.customAttributeGenerators[attributeIndex];
@@ -446,17 +471,54 @@ namespace Il2CppDumper
                         {
                             return string.Empty;
                         }
+                        var availableCount = (int)Math.Min((long)reader.Count, (long)reader.AvailableConstructors);
+                        var truncatedCount = Math.Max(0L, (long)reader.Count - availableCount);
                         var sb = new StringBuilder();
-                        for (var i = 0; i < reader.Count; i++)
+                        for (var i = 0; i < availableCount; i++)
                         {
-                            sb.Append(padding);
-                            sb.Append(reader.GetStringCustomAttributeData());
-                            sb.Append('\n');
+                            var attributeTypeName = reader.GetAttributeTypeName(i);
+                            try
+                            {
+                                var attributeData = reader.GetStringCustomAttributeData();
+                                sb.Append(padding);
+                                sb.Append(attributeData);
+                                sb.Append('\n');
+                                if (CustomAttributeWrittenCount < long.MaxValue)
+                                    CustomAttributeWrittenCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                if (CustomAttributeFailedCount < long.MaxValue)
+                                    CustomAttributeFailedCount++;
+                                log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                                for (var j = i + 1; j < availableCount; j++)
+                                {
+                                    var remainingTypeName = reader.GetAttributeTypeName(j);
+                                    if (CustomAttributeFailedCount < long.MaxValue)
+                                        CustomAttributeFailedCount++;
+                                    log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
+                                }
+                                break;
+                            }
                         }
+
+                        if (truncatedCount > 0)
+                        {
+                            if (long.MaxValue - CustomAttributeFailedCount < truncatedCount)
+                                CustomAttributeFailedCount = long.MaxValue;
+                            else
+                                CustomAttributeFailedCount += truncatedCount;
+
+                            log.LogWarning($"WARNING: Custom attribute blob declares {reader.Count} attribute(s) but buffer only contains {availableCount} constructor record(s) on '{owner}' (token 0x{token:X8}); {truncatedCount} missing attribute(s) skipped.");
+                        }
+
                         return sb.ToString();
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        if (CustomAttributeFailedCount < long.MaxValue)
+                            CustomAttributeFailedCount++;
+                        log.LogWarning($"WARNING: Failed to read custom attribute data on '{owner}' (token 0x{token:X8}): {ex.Message}");
                         return string.Empty;
                     }
                 }
@@ -465,6 +527,39 @@ namespace Il2CppDumper
             {
                 return string.Empty;
             }
+        }
+
+        private string ResolveOwnerFromToken(uint token)
+        {
+            var table = token & 0xFF000000;
+            var index = (int)(token & 0x00FFFFFF) - 1;
+            try
+            {
+                switch (table)
+                {
+                    case 0x02000000: // TypeDef
+                        if (index >= 0 && index < metadata.typeDefs.Length)
+                            return metadata.GetStringFromIndex(metadata.typeDefs[index].nameIndex);
+                        break;
+                    case 0x04000000: // FieldDef
+                        if (index >= 0 && index < metadata.fieldDefs.Length)
+                            return metadata.GetStringFromIndex(metadata.fieldDefs[index].nameIndex);
+                        break;
+                    case 0x06000000: // MethodDef
+                        if (index >= 0 && index < metadata.methodDefs.Length)
+                            return metadata.GetStringFromIndex(metadata.methodDefs[index].nameIndex);
+                        break;
+                    case 0x17000000: // PropertyDef
+                        if (index >= 0 && index < metadata.propertyDefs.Length)
+                            return metadata.GetStringFromIndex(metadata.propertyDefs[index].nameIndex);
+                        break;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+            return $"token 0x{token:X8}";
         }
 
         public string GetModifiers(Il2CppMethodDefinition methodDef)

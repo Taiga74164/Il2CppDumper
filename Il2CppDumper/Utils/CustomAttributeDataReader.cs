@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Il2CppDumper
@@ -8,9 +8,11 @@ namespace Il2CppDumper
         private readonly Il2CppExecutor executor;
         private readonly Metadata metadata;
         private long ctorBuffer;
+        private readonly long ctorBufferStart;
         private long dataBuffer;
 
         public uint Count { get; set; }
+        public int AvailableConstructors => (int)System.Math.Max(0, (BaseStream.Length - ctorBufferStart) / 4);
 
         public CustomAttributeDataReader(Il2CppExecutor executor, byte[] buff) : base(new MemoryStream(buff))
         {
@@ -18,7 +20,36 @@ namespace Il2CppDumper
             metadata = executor.metadata;
             Count = this.ReadCompressedUInt32();
             ctorBuffer = BaseStream.Position;
+            ctorBufferStart = ctorBuffer;
             dataBuffer = BaseStream.Position + Count * 4;
+        }
+
+        public string GetAttributeTypeName(int index)
+        {
+            var savedPos = BaseStream.Position;
+            try
+            {
+                BaseStream.Position = ctorBufferStart + index * 4;
+                var ctorIndex = ReadInt32();
+                if (ctorIndex >= 0 && ctorIndex < metadata.methodDefs.Length)
+                {
+                    var methodDef = metadata.methodDefs[ctorIndex];
+                    if (methodDef.declaringType >= 0 && methodDef.declaringType < metadata.typeDefs.Length)
+                    {
+                        var typeDef = metadata.typeDefs[methodDef.declaringType];
+                        return metadata.GetStringFromIndex(typeDef.nameIndex);
+                    }
+                }
+                return $"ctor_{ctorIndex}";
+            }
+            catch
+            {
+                return "UnknownAttribute";
+            }
+            finally
+            {
+                BaseStream.Position = savedPos;
+            }
         }
 
         public string GetStringCustomAttributeData()
