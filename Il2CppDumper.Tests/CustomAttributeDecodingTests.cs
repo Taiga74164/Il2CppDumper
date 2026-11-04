@@ -171,11 +171,36 @@ namespace Il2CppDumper.Tests
             bw.Write((byte)0);
             bw.Write((byte)0);
 
-            // Entry 1 (Malformed): 1 argument with invalid type byte (0xFF)
+            // Entry 1 (Malformed): 1 argument with invalid type byte (0xEE)
             bw.Write((byte)1);
             bw.Write((byte)0);
             bw.Write((byte)0);
-            bw.Write((byte)0xFF);
+            bw.Write((byte)0xEE);
+
+            return ms.ToArray();
+        }
+
+        private static byte[] CreateSyntheticBlobWithMalformedFirstThenValid()
+        {
+            using var ms = new MemoryStream();
+            using var bw = new BinaryWriter(ms);
+            // Count = 2
+            bw.Write((byte)2);
+            // ctorIndex 0 (MalformedAttribute)
+            bw.Write((int)1);
+            // ctorIndex 1 (ValidAttribute)
+            bw.Write((int)0);
+
+            // Entry 0 (Malformed): 1 argument with invalid type byte (0xEE)
+            bw.Write((byte)1);
+            bw.Write((byte)0);
+            bw.Write((byte)0);
+            bw.Write((byte)0xEE);
+
+            // Entry 1 (Valid): 0 arguments, 0 fields, 0 properties
+            bw.Write((byte)0);
+            bw.Write((byte)0);
+            bw.Write((byte)0);
 
             return ms.ToArray();
         }
@@ -222,6 +247,36 @@ namespace Il2CppDumper.Tests
             // 4. Counts must accurately track written vs failed
             Assert.Equal(1, decompiler.CustomAttributeWrittenCount);
             Assert.Equal(1, decompiler.CustomAttributeFailedCount);
+        }
+
+        [Fact]
+        public void GetCustomAttribute_WithMalformedFirstThenValid_SkipsRemainingBlobWithoutCorruptingDataAndLogsWarnings()
+        {
+            var blob = CreateSyntheticBlobWithMalformedFirstThenValid();
+            var (metadata, il2Cpp, imageDef) = CreateEnvironment(blob);
+            var executor = new Il2CppExecutor(metadata, il2Cpp);
+            var decompiler = new Il2CppDecompiler(executor);
+
+            var capturedWarnings = new List<string>();
+            decompiler.log = new DecompilerLogger(msg => capturedWarnings.Add(msg));
+
+            var output = decompiler.GetCustomAttribute(imageDef, 0, 0x04000001, padding: "", owner: "TargetClass.targetField");
+
+            // Neither attribute should be written; remainder of blob is stopped safely without reading garbage
+            Assert.DoesNotContain("[Malformed]", output);
+            Assert.DoesNotContain("[Valid]", output);
+
+            // Warnings must be captured for both: the failed one and the safely skipped remaining one
+            Assert.Equal(2, capturedWarnings.Count);
+            Assert.Contains("MalformedAttribute", capturedWarnings[0]);
+            Assert.Contains("TargetClass.targetField", capturedWarnings[0]);
+            Assert.Contains("ValidAttribute", capturedWarnings[1]);
+            Assert.Contains("TargetClass.targetField", capturedWarnings[1]);
+            Assert.Contains("Skipped due to previous attribute decoding failure in the same blob", capturedWarnings[1]);
+
+            // Counts must accurately track written (0) vs failed/skipped (2)
+            Assert.Equal(0, decompiler.CustomAttributeWrittenCount);
+            Assert.Equal(2, decompiler.CustomAttributeFailedCount);
         }
 
         [Fact]

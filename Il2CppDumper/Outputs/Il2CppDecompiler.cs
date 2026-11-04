@@ -486,8 +486,14 @@ namespace Il2CppDumper
                             catch (Exception ex)
                             {
                                 CustomAttributeFailedCount++;
-                                reader.AdvanceToNextAttribute(i + 1);
                                 log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                                for (var j = i + 1; j < reader.Count; j++)
+                                {
+                                    var remainingTypeName = reader.GetAttributeTypeName(j);
+                                    CustomAttributeFailedCount++;
+                                    log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
+                                }
+                                break;
                             }
 
 

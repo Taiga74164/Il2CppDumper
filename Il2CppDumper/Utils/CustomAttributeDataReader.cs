@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Il2CppDumper
@@ -49,11 +49,6 @@ namespace Il2CppDumper
             {
                 BaseStream.Position = savedPos;
             }
-        }
-
-        public void AdvanceToNextAttribute(int nextIndex)
-        {
-            ctorBuffer = ctorBufferStart + nextIndex * 4;
         }
 
         public string GetStringCustomAttributeData()
