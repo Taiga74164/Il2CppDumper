@@ -89,8 +89,8 @@ Available options:
 * `DumpMethod`, `DumpField`, `DumpProperty`, `DumpAttribute`, `DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`
   * Whether to output these information to dump.cs
 
-* `GenerateDummyDll`, `GenerateScript`
-  * Whether to generate these things
+* `GenerateDummyDll`, `GenerateStruct`
+  * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, and `il2cpp.h`)
 
 * `DummyDllAddToken`
   * Whether to add token in DummyDll
