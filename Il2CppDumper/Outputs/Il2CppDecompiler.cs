@@ -342,7 +342,7 @@ namespace Il2CppDumper
                                             }
                                             else
                                             {
-                                                writer.Write("null");
+                                                parameterStr += "null";
                                             }
                                         }
                                         else
