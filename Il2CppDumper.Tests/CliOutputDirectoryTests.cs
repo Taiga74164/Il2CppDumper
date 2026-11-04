@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -286,6 +287,45 @@ namespace Il2CppDumper.Tests
         public void Cli_InvalidOutputDirectoryPath_FailsWithClearErrorAndExitCodeOne()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-9-invalidpath-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                (var wasmPath, var metaPath) = CreateSyntheticFixtures(fixturesDir);
+
+                // Portable invalid directory path across Windows and Unix:
+                // Attempting to create a child directory under an existing regular file throws IOException on all platforms (ENOTDIR on POSIX).
+                var blockingFile = Path.Combine(fixturesDir, "blocking_file.txt");
+                File.WriteAllText(blockingFile, "blocking content");
+                var invalidDestination = Path.Combine(blockingFile, "child_dir");
+
+                var (exitCode, stdout, _) = RunCli(appDir, wasmPath, metaPath, invalidDestination);
+
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Failed to create output directory", stdout);
+                Assert.False(File.Exists(Path.Combine(appDir, "dump.cs")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Cli_InvalidOutputDirectoryCharacters_OnWindows_FailsWithClearErrorAndExitCodeOne()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return;
+            }
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-9-wininvalid-" + Guid.NewGuid());
             Directory.CreateDirectory(tempDir);
             try
             {
