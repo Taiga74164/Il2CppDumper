@@ -115,13 +115,17 @@ namespace Il2CppDumper.Tests
             var psi = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"\"{dllPath}\" {string.Join(" ", Array.ConvertAll(args, a => $"\"{a}\""))}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
                 UseShellExecute = false,
                 WorkingDirectory = appDir
             };
+            psi.ArgumentList.Add(dllPath);
+            foreach (var arg in args)
+            {
+                psi.ArgumentList.Add(arg);
+            }
 
             using var process = Process.Start(psi)!;
             process.StandardInput.Close();
