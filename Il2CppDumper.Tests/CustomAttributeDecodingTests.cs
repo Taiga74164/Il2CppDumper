@@ -216,6 +216,17 @@ namespace Il2CppDumper.Tests
             return ms.ToArray();
         }
 
+        private static byte[] CreateSyntheticBlobWithMaxCountAndSingleMalformedConstructor()
+        {
+            using var ms = new MemoryStream();
+            using var bw = new BinaryWriter(ms);
+            // 0xFF byte -> ReadCompressedUInt32 returns uint.MaxValue (4294967295)
+            bw.Write((byte)0xFF);
+            // ctorIndex 0 (MalformedAttribute) -> method index 1 (4 bytes)
+            bw.Write((int)1);
+            return ms.ToArray();
+        }
+
         private static byte[] CreateSyntheticValidBlob()
         {
             using var ms = new MemoryStream();
@@ -256,8 +267,8 @@ namespace Il2CppDumper.Tests
             Assert.Contains("TargetClass.targetField", capturedWarnings[0]);
 
             // 4. Counts must accurately track written vs failed
-            Assert.Equal(1, decompiler.CustomAttributeWrittenCount);
-            Assert.Equal(1, decompiler.CustomAttributeFailedCount);
+            Assert.Equal(1L, decompiler.CustomAttributeWrittenCount);
+            Assert.Equal(1L, decompiler.CustomAttributeFailedCount);
         }
 
         [Fact]
@@ -286,8 +297,8 @@ namespace Il2CppDumper.Tests
             Assert.Contains("Skipped due to previous attribute decoding failure in the same blob", capturedWarnings[1]);
 
             // Counts must accurately track written (0) vs failed/skipped (2)
-            Assert.Equal(0, decompiler.CustomAttributeWrittenCount);
-            Assert.Equal(2, decompiler.CustomAttributeFailedCount);
+            Assert.Equal(0L, decompiler.CustomAttributeWrittenCount);
+            Assert.Equal(2L, decompiler.CustomAttributeFailedCount);
         }
 
         [Fact]
@@ -315,8 +326,8 @@ namespace Il2CppDumper.Tests
             Assert.Contains("TargetClass.targetField", capturedWarnings[1]);
 
             // Counts must accurately match declared count (100 total failed/skipped, 0 written)
-            Assert.Equal(0, decompiler.CustomAttributeWrittenCount);
-            Assert.Equal(100, decompiler.CustomAttributeFailedCount);
+            Assert.Equal(0L, decompiler.CustomAttributeWrittenCount);
+            Assert.Equal(100L, decompiler.CustomAttributeFailedCount);
         }
 
         [Fact]
@@ -396,8 +407,8 @@ namespace Il2CppDumper.Tests
 
                 // Success path: no warnings or failure summary emitted
                 Assert.Empty(capturedWarnings);
-                Assert.Equal(1, decompiler.CustomAttributeWrittenCount);
-                Assert.Equal(0, decompiler.CustomAttributeFailedCount);
+                Assert.Equal(1L, decompiler.CustomAttributeWrittenCount);
+                Assert.Equal(0L, decompiler.CustomAttributeFailedCount);
             }
             finally
             {
@@ -425,6 +436,60 @@ namespace Il2CppDumper.Tests
             Assert.Contains("[Valid]", output);
             Assert.Single(capturedWarnings);
             Assert.Contains("targetField", capturedWarnings[0]);
+        }
+
+        [Fact]
+        public void Decompile_WithCountUintMaxValueAndFailedDecoding_DoesNotOverflowCounterAndEmitsSummary()
+        {
+            var blob = CreateSyntheticBlobWithMaxCountAndSingleMalformedConstructor();
+            var (metadata, il2Cpp, _) = CreateEnvironment(blob);
+            var executor = new Il2CppExecutor(metadata, il2Cpp);
+            var decompiler = new Il2CppDecompiler(executor);
+
+            var capturedWarnings = new List<string>();
+            decompiler.log = new DecompilerLogger(msg => capturedWarnings.Add(msg));
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp_test_" + Guid.NewGuid().ToString("N")) + Path.DirectorySeparatorChar;
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var config = new Config
+                {
+                    DumpAttribute = true,
+                    DumpField = true,
+                    DumpFieldOffset = false,
+                    DumpTypeDefIndex = false,
+                    DumpMethod = false,
+                    DumpProperty = false,
+                    GenerateDummyDll = false,
+                    GenerateStruct = false
+                };
+
+                var success = decompiler.Decompile(config, tempDir);
+                Assert.True(success);
+
+                // Counter must remain positive and not overflow into negative
+                Assert.True(decompiler.CustomAttributeFailedCount > 0, "Counter must remain positive without overflowing");
+                Assert.Equal((long)uint.MaxValue, decompiler.CustomAttributeFailedCount);
+                Assert.Equal(0L, decompiler.CustomAttributeWrittenCount);
+
+                // Summary must be emitted because CustomAttributeFailedCount > 0
+                Assert.Contains(capturedWarnings, w => w.Contains("Custom attribute decoding completed") &&
+                                                       w.Contains("4294967295 failure(s)") &&
+                                                       w.Contains("0 written") &&
+                                                       w.Contains("4294967295 skipped"));
+
+                // Warnings must contain the single item failure warning and the truncated summary
+                Assert.Contains(capturedWarnings, w => w.Contains("MalformedAttribute"));
+                Assert.Contains(capturedWarnings, w => w.Contains("declares 4294967295 attribute(s) but buffer only contains 1 constructor record(s)"));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
         }
     }
 }

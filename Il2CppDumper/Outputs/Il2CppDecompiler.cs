@@ -29,8 +29,8 @@ namespace Il2CppDumper
         private readonly Il2Cpp il2Cpp;
         private readonly Dictionary<Il2CppMethodDefinition, string> methodModifiers;
         public DecompilerLogger log { get; set; } = new();
-        public int CustomAttributeWrittenCount { get; private set; }
-        public int CustomAttributeFailedCount { get; private set; }
+        public long CustomAttributeWrittenCount { get; private set; }
+        public long CustomAttributeFailedCount { get; private set; }
 
         public Il2CppDecompiler(Il2CppExecutor il2CppExecutor)
         {
@@ -472,7 +472,7 @@ namespace Il2CppDumper
                             return string.Empty;
                         }
                         var availableCount = (int)Math.Min((long)reader.Count, (long)reader.AvailableConstructors);
-                        var truncatedCount = (int)Math.Min((long)int.MaxValue, Math.Max(0L, (long)reader.Count - availableCount));
+                        var truncatedCount = Math.Max(0L, (long)reader.Count - availableCount);
                         var sb = new StringBuilder();
                         for (var i = 0; i < availableCount; i++)
                         {
@@ -483,16 +483,19 @@ namespace Il2CppDumper
                                 sb.Append(padding);
                                 sb.Append(attributeData);
                                 sb.Append('\n');
-                                CustomAttributeWrittenCount++;
+                                if (CustomAttributeWrittenCount < long.MaxValue)
+                                    CustomAttributeWrittenCount++;
                             }
                             catch (Exception ex)
                             {
-                                CustomAttributeFailedCount++;
+                                if (CustomAttributeFailedCount < long.MaxValue)
+                                    CustomAttributeFailedCount++;
                                 log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
                                 for (var j = i + 1; j < availableCount; j++)
                                 {
                                     var remainingTypeName = reader.GetAttributeTypeName(j);
-                                    CustomAttributeFailedCount++;
+                                    if (CustomAttributeFailedCount < long.MaxValue)
+                                        CustomAttributeFailedCount++;
                                     log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
                                 }
                                 break;
@@ -501,7 +504,11 @@ namespace Il2CppDumper
 
                         if (truncatedCount > 0)
                         {
-                            CustomAttributeFailedCount += truncatedCount;
+                            if (long.MaxValue - CustomAttributeFailedCount < truncatedCount)
+                                CustomAttributeFailedCount = long.MaxValue;
+                            else
+                                CustomAttributeFailedCount += truncatedCount;
+
                             log.LogWarning($"WARNING: Custom attribute blob declares {reader.Count} attribute(s) but buffer only contains {availableCount} constructor record(s) on '{owner}' (token 0x{token:X8}); {truncatedCount} missing attribute(s) skipped.");
                         }
 
@@ -509,7 +516,8 @@ namespace Il2CppDumper
                     }
                     catch (Exception ex)
                     {
-                        CustomAttributeFailedCount++;
+                        if (CustomAttributeFailedCount < long.MaxValue)
+                            CustomAttributeFailedCount++;
                         log.LogWarning($"WARNING: Failed to read custom attribute data on '{owner}' (token 0x{token:X8}): {ex.Message}");
                         return string.Empty;
                     }
