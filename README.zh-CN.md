@@ -81,7 +81,7 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 ### 关于config.json
 
 * `DumpMethod`，`DumpField`，`DumpProperty`，`DumpAttribute`，`DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`
-  * 是否在dump.cs输出相应的内容
+  * 是否在dump.cs输出相应的内容（`DumpProperty` 和 `DumpAttribute` 默认值为 `true`）
 
 * `GenerateDummyDll`，`GenerateStruct`
   * 是否生成这些内容（`GenerateStruct` 控制 `StructGenerator` 输出的内容：`script.json`、`stringliteral.json` 和 `il2cpp.h`）

@@ -58,6 +58,26 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
+        public void Readme_English_DocumentsDumpPropertyAndDumpAttributeDefaults()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("`DumpProperty` and `DumpAttribute` default to `true`", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsDumpPropertyAndDumpAttributeDefaults()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("`DumpProperty` \u548c `DumpAttribute` \u9ed8\u8ba4\u503c\u4e3a `true`", content);
+        }
+
+        [Fact]
         public void Config_DeserializingGenerateStructFalse_DisablesGenerationGate()
         {
             // Verifies the exact scenario from Issue #11:
@@ -77,6 +97,54 @@ namespace Il2CppDumper.Tests
 
             Assert.NotNull(config);
             Assert.True(config.GenerateStruct);
+        }
+
+        [Fact]
+        public void Config_DefaultConstructor_HasDumpPropertyAndDumpAttributeEnabledByDefault()
+        {
+            var config = new Config();
+
+            Assert.True(config.DumpProperty);
+            Assert.True(config.DumpAttribute);
+        }
+
+        [Fact]
+        public void Config_DeserializingEmptyJson_ProducesTrueForDumpPropertyAndDumpAttribute()
+        {
+            var config = JsonSerializer.Deserialize<Config>("{}");
+
+            Assert.NotNull(config);
+            Assert.True(config.DumpProperty);
+            Assert.True(config.DumpAttribute);
+        }
+
+        [Fact]
+        public void Config_ShippedConfigJson_AlignsWithCodeDefaultsForPropertiesAndAttributes()
+        {
+            var repoRoot = FindRepoRoot();
+            var configJsonPath = Path.Combine(repoRoot, "Il2CppDumper", "config.json");
+            Assert.True(File.Exists(configJsonPath), $"Expected config.json at {configJsonPath}");
+
+            var json = File.ReadAllText(configJsonPath);
+            var shippedConfig = JsonSerializer.Deserialize<Config>(json);
+            var codeDefaultConfig = new Config();
+
+            Assert.NotNull(shippedConfig);
+            Assert.True(shippedConfig.DumpProperty);
+            Assert.True(shippedConfig.DumpAttribute);
+            Assert.Equal(codeDefaultConfig.DumpProperty, shippedConfig.DumpProperty);
+            Assert.Equal(codeDefaultConfig.DumpAttribute, shippedConfig.DumpAttribute);
+        }
+
+        [Fact]
+        public void Config_ExplicitFalseJson_AllowsDisablingDumpPropertyAndDumpAttribute()
+        {
+            const string json = "{\"DumpProperty\": false, \"DumpAttribute\": false}";
+            var config = JsonSerializer.Deserialize<Config>(json);
+
+            Assert.NotNull(config);
+            Assert.False(config.DumpProperty);
+            Assert.False(config.DumpAttribute);
         }
 
         [Fact]

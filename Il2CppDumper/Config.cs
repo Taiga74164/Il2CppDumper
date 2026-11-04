@@ -4,8 +4,8 @@
     {
         public bool DumpMethod { get; set; } = true;
         public bool DumpField { get; set; } = true;
-        public bool DumpProperty { get; set; } = false;
-        public bool DumpAttribute { get; set; } = false;
+        public bool DumpProperty { get; set; } = true;
+        public bool DumpAttribute { get; set; } = true;
         public bool DumpFieldOffset { get; set; } = true;
         public bool DumpMethodOffset { get; set; } = true;
         public bool DumpTypeDefIndex { get; set; } = true;
