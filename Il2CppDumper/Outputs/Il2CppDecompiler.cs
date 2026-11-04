@@ -22,8 +22,9 @@ namespace Il2CppDumper
             methodModifiers = new();
         }
 
-        public void Decompile(Config config, string outputDir)
+        public bool Decompile(Config config, string outputDir)
         {
+            var success = true;
             var writer = new StreamWriter(new FileStream(outputDir + "dump.cs", FileMode.Create), new UTF8Encoding(false));
             //dump image
             for (var imageIndex = 0; imageIndex < metadata.imageDefs.Length; imageIndex++)
@@ -394,6 +395,7 @@ namespace Il2CppDumper
                 }
                 catch (Exception e)
                 {
+                    success = false;
                     Console.WriteLine("ERROR: Some errors in dumping");
                     writer.Write("/*");
                     writer.Write(e);
@@ -401,6 +403,7 @@ namespace Il2CppDumper
                 }
             }
             writer.Close();
+            return success;
         }
 
         public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "")
