@@ -284,6 +284,106 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
+        public void Cli_FailedRun_InvalidMagicMetadata_StillWritesDumpMetadataSidecar()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-29-badmagic-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                var wasmBytes = new byte[] { 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+                var wasmPath = Path.Combine(fixturesDir, "program.wasm");
+                File.WriteAllBytes(wasmPath, wasmBytes);
+                var expectedWasmSha256 = Convert.ToHexString(SHA256.HashData(wasmBytes)).ToLowerInvariant();
+
+                var invalidMagicMetaBytes = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x1D, 0x00, 0x00, 0x00 };
+                var metaPath = Path.Combine(fixturesDir, "invalid-magic-metadata.dat");
+                File.WriteAllBytes(metaPath, invalidMagicMetaBytes);
+                var expectedMetaSha256 = Convert.ToHexString(SHA256.HashData(invalidMagicMetaBytes)).ToLowerInvariant();
+
+                var outputDir = Path.Combine(tempDir, "out");
+                Directory.CreateDirectory(outputDir);
+
+                var (exitCode, stdout, _) = RunCli(appDir, wasmPath, metaPath, outputDir);
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Metadata file not found or encrypted.", stdout);
+
+                var sidecarPath = Path.Combine(outputDir, "dump-metadata.json");
+                Assert.True(File.Exists(sidecarPath));
+
+                var parsed = JsonSerializer.Deserialize<DumpMetadata>(File.ReadAllText(sidecarPath))!;
+                Assert.NotNull(parsed);
+                Assert.Equal(0, parsed.MetadataVersion);
+                Assert.Equal(Path.GetFullPath(wasmPath), parsed.Inputs.Il2Cpp.Path);
+                Assert.Equal(8L, parsed.Inputs.Il2Cpp.Length);
+                Assert.Equal(expectedWasmSha256, parsed.Inputs.Il2Cpp.Sha256);
+                Assert.Equal(Path.GetFullPath(metaPath), parsed.Inputs.Metadata.Path);
+                Assert.Equal(8L, parsed.Inputs.Metadata.Length);
+                Assert.Equal(expectedMetaSha256, parsed.Inputs.Metadata.Sha256);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Cli_FailedRun_MetadataTruncatedUnderFourBytes_StillWritesDumpMetadataSidecar()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-29-trunc3-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                var wasmBytes = new byte[] { 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+                var wasmPath = Path.Combine(fixturesDir, "program.wasm");
+                File.WriteAllBytes(wasmPath, wasmBytes);
+                var expectedWasmSha256 = Convert.ToHexString(SHA256.HashData(wasmBytes)).ToLowerInvariant();
+
+                var truncatedMetaBytes = new byte[] { 0xAF, 0x1B, 0xB1 };
+                var metaPath = Path.Combine(fixturesDir, "truncated-3bytes-metadata.dat");
+                File.WriteAllBytes(metaPath, truncatedMetaBytes);
+                var expectedMetaSha256 = Convert.ToHexString(SHA256.HashData(truncatedMetaBytes)).ToLowerInvariant();
+
+                var outputDir = Path.Combine(tempDir, "out");
+                Directory.CreateDirectory(outputDir);
+
+                var (exitCode, stdout, _) = RunCli(appDir, wasmPath, metaPath, outputDir);
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Metadata file not found or encrypted.", stdout);
+
+                var sidecarPath = Path.Combine(outputDir, "dump-metadata.json");
+                Assert.True(File.Exists(sidecarPath));
+
+                var parsed = JsonSerializer.Deserialize<DumpMetadata>(File.ReadAllText(sidecarPath))!;
+                Assert.NotNull(parsed);
+                Assert.Equal(0, parsed.MetadataVersion);
+                Assert.Equal(Path.GetFullPath(wasmPath), parsed.Inputs.Il2Cpp.Path);
+                Assert.Equal(8L, parsed.Inputs.Il2Cpp.Length);
+                Assert.Equal(expectedWasmSha256, parsed.Inputs.Il2Cpp.Sha256);
+                Assert.Equal(Path.GetFullPath(metaPath), parsed.Inputs.Metadata.Path);
+                Assert.Equal(3L, parsed.Inputs.Metadata.Length);
+                Assert.Equal(expectedMetaSha256, parsed.Inputs.Metadata.Sha256);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
         public void Cli_FailedRun_AutoSearchFails_StillWritesDumpMetadataSidecarWithResolvedMetadataVersion()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-29-searchfail-" + Guid.NewGuid());

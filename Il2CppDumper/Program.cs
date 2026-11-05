@@ -16,6 +16,7 @@ namespace Il2CppDumper
             config = JsonSerializer.Deserialize<Config>(File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + @"config.json"));
             string il2cppPath = null;
             string metadataPath = null;
+            string candidateMetadataPath = null;
             string outputDir = null;
 
             if (args.Length == 1)
@@ -45,6 +46,10 @@ namespace Il2CppDumper
                         else if (il2cppPath == null)
                         {
                             il2cppPath = arg;
+                        }
+                        else if (candidateMetadataPath == null)
+                        {
+                            candidateMetadataPath = arg;
                         }
                     }
                     else if (Directory.Exists(arg))
@@ -114,6 +119,17 @@ namespace Il2CppDumper
             var exitCode = 0;
             if (metadataPath == null)
             {
+                if (candidateMetadataPath != null)
+                {
+                    try
+                    {
+                        DumpMetadataWriter.WriteInitial(outputDir, il2cppPath, candidateMetadataPath, config);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+                }
                 Console.WriteLine($"ERROR: Metadata file not found or encrypted.");
                 exitCode = 1;
             }
