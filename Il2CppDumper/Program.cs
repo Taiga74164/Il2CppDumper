@@ -19,6 +19,13 @@ namespace Il2CppDumper
             string candidateMetadataPath = null;
             string outputDir = null;
 
+            var argList = args.ToList();
+            if (argList.Remove("--output-json"))
+            {
+                config.GenerateJsonDump = true;
+                args = argList.ToArray();
+            }
+
             if (args.Length == 1)
             {
                 if (args[0] == "-h" || args[0] == "--help" || args[0] == "/?" || args[0] == "/h")
@@ -175,7 +182,7 @@ namespace Il2CppDumper
 
         static void ShowHelp()
         {
-            Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
+            Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory> [--output-json]");
         }
 
         private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp, string outputDir = null, DumpMetadata dumpMetadata = null)

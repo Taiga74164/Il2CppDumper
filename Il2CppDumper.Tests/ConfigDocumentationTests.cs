@@ -161,6 +161,7 @@ namespace Il2CppDumper.Tests
                 "DumpTypeDefIndex",
                 "GenerateDummyDll",
                 "GenerateStruct",
+                "GenerateJsonDump",
                 "DummyDllAddToken",
                 "RequireAnyKey",
                 "ForceIl2CppVersion",
@@ -194,6 +195,7 @@ namespace Il2CppDumper.Tests
                 "DumpTypeDefIndex",
                 "GenerateDummyDll",
                 "GenerateStruct",
+                "GenerateJsonDump",
                 "DummyDllAddToken",
                 "RequireAnyKey",
                 "ForceIl2CppVersion",
@@ -226,6 +228,99 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`generatedAtUtc`", content);
             Assert.Contains("**Português:**", content);
             Assert.Contains("proveniência", content);
+        }
+
+        [Fact]
+        public void Config_DefaultConstructor_HasGenerateJsonDumpFalseByDefault()
+        {
+            var config = new Config();
+
+            Assert.False(config.GenerateJsonDump);
+        }
+
+        [Fact]
+        public void Config_DeserializingEmptyJson_ProducesFalseForGenerateJsonDump()
+        {
+            var config = JsonSerializer.Deserialize<Config>("{}");
+
+            Assert.NotNull(config);
+            Assert.False(config.GenerateJsonDump);
+        }
+
+        [Fact]
+        public void Config_DeserializingGenerateJsonDumpTrue_EnablesGenerationGate()
+        {
+            const string json = "{\"GenerateJsonDump\": true}";
+            var config = JsonSerializer.Deserialize<Config>(json);
+
+            Assert.NotNull(config);
+            Assert.True(config.GenerateJsonDump);
+        }
+
+        [Fact]
+        public void Config_DeserializingGenerateJsonDumpFalse_DisablesGenerationGate()
+        {
+            const string json = "{\"GenerateJsonDump\": false}";
+            var config = JsonSerializer.Deserialize<Config>(json);
+
+            Assert.NotNull(config);
+            Assert.False(config.GenerateJsonDump);
+        }
+
+        [Fact]
+        public void Config_ShippedConfigJson_AlignsWithCodeDefaultsForGenerateJsonDump()
+        {
+            var repoRoot = FindRepoRoot();
+            var configJsonPath = Path.Combine(repoRoot, "Il2CppDumper", "config.json");
+            Assert.True(File.Exists(configJsonPath), $"Expected config.json at {configJsonPath}");
+
+            var json = File.ReadAllText(configJsonPath);
+            var shippedConfig = JsonSerializer.Deserialize<Config>(json);
+            var codeDefaultConfig = new Config();
+
+            Assert.NotNull(shippedConfig);
+            Assert.False(shippedConfig.GenerateJsonDump);
+            Assert.Equal(codeDefaultConfig.GenerateJsonDump, shippedConfig.GenerateJsonDump);
+        }
+
+        [Fact]
+        public void Readme_English_DocumentsDumpJson_WithPortugueseSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### dump.json", content);
+            Assert.Contains("`GenerateJsonDump`", content);
+            Assert.Contains("`types`", content);
+            Assert.Contains("`fields`", content);
+            Assert.Contains("`properties`", content);
+            Assert.Contains("`methods`", content);
+            Assert.Contains("`enums`", content);
+            Assert.Contains("`nested`", content);
+            Assert.Contains("`attributes`", content);
+            Assert.Contains("[Serializable]", content);
+            Assert.Contains("**Português:**", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsDumpJson_WithPortugueseSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### dump.json", content);
+            Assert.Contains("`GenerateJsonDump`", content);
+            Assert.Contains("`types`", content);
+            Assert.Contains("`fields`", content);
+            Assert.Contains("`properties`", content);
+            Assert.Contains("`methods`", content);
+            Assert.Contains("`enums`", content);
+            Assert.Contains("`nested`", content);
+            Assert.Contains("`attributes`", content);
+            Assert.Contains("[Serializable]", content);
+            Assert.Contains("**Português:**", content);
         }
 
         [Fact]

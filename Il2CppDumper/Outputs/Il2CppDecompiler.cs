@@ -427,13 +427,27 @@ namespace Il2CppDumper
                 log.LogWarning($"WARNING: Custom attribute decoding completed with {CustomAttributeFailedCount} failure(s) ({CustomAttributeWrittenCount} written, {CustomAttributeFailedCount} skipped).");
             }
             writer.Close();
+            if (config.GenerateJsonDump)
+            {
+                try
+                {
+                    JsonDumpGenerator.Write(outputDir, this, executor, config);
+                }
+                catch (Exception e)
+                {
+                    success = false;
+                    Console.WriteLine("ERROR: Some errors in generating json dump");
+                    Console.WriteLine(e);
+                }
+            }
             return success;
         }
 
-        public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "", string owner = null)
+        public List<string> GetCustomAttributeStrings(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string owner = null, bool countMetrics = false)
         {
+            var result = new List<string>();
             if (il2Cpp.Version < 21)
-                return string.Empty;
+                return result;
             var attributeIndex = metadata.GetCustomAttributeIndex(imageDef, customAttributeIndex, token);
             if (attributeIndex >= 0)
             {
@@ -443,18 +457,13 @@ namespace Il2CppDumper
                     var methodPointer = executor.customAttributeGenerators[attributeIndex];
                     var fixedMethodPointer = il2Cpp.GetRVA(methodPointer);
                     var attributeTypeRange = metadata.attributeTypeRanges[attributeIndex];
-                    var sb = new StringBuilder();
                     for (var i = 0; i < attributeTypeRange.count; i++)
                     {
                         var typeIndex = metadata.attributeTypes[attributeTypeRange.start + i];
-                        sb.AppendFormat("{0}[{1}] // RVA: 0x{2:X} Offset: 0x{3:X} VA: 0x{4:X}\n",
-                            padding,
-                            executor.GetTypeName(il2Cpp.types[typeIndex], false, false),
-                            fixedMethodPointer,
-                            il2Cpp.MapVATR(methodPointer),
-                            methodPointer);
+                        var attrStr = $"[{executor.GetTypeName(il2Cpp.types[typeIndex], false, false)}] // RVA: 0x{fixedMethodPointer:X} Offset: 0x{il2Cpp.MapVATR(methodPointer):X} VA: 0x{methodPointer:X}";
+                        result.Add(attrStr);
                     }
-                    return sb.ToString();
+                    return result;
                 }
                 else
                 {
@@ -469,40 +478,43 @@ namespace Il2CppDumper
                         var reader = new CustomAttributeDataReader(executor, buff);
                         if (reader.Count == 0)
                         {
-                            return string.Empty;
+                            return result;
                         }
                         var availableCount = (int)Math.Min((long)reader.Count, (long)reader.AvailableConstructors);
                         var truncatedCount = Math.Max(0L, (long)reader.Count - availableCount);
-                        var sb = new StringBuilder();
                         for (var i = 0; i < availableCount; i++)
                         {
                             var attributeTypeName = reader.GetAttributeTypeName(i);
                             try
                             {
                                 var attributeData = reader.GetStringCustomAttributeData();
-                                sb.Append(padding);
-                                sb.Append(attributeData);
-                                sb.Append('\n');
-                                if (CustomAttributeWrittenCount < long.MaxValue)
+                                result.Add(attributeData);
+                                if (countMetrics && CustomAttributeWrittenCount < long.MaxValue)
                                     CustomAttributeWrittenCount++;
                             }
                             catch (Exception ex)
                             {
-                                if (CustomAttributeFailedCount < long.MaxValue)
+                                if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
                                     CustomAttributeFailedCount++;
-                                log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                                if (countMetrics)
+                                {
+                                    log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                                }
                                 for (var j = i + 1; j < availableCount; j++)
                                 {
                                     var remainingTypeName = reader.GetAttributeTypeName(j);
-                                    if (CustomAttributeFailedCount < long.MaxValue)
+                                    if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
                                         CustomAttributeFailedCount++;
-                                    log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
+                                    if (countMetrics)
+                                    {
+                                        log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
+                                    }
                                 }
                                 break;
                             }
                         }
 
-                        if (truncatedCount > 0)
+                        if (truncatedCount > 0 && countMetrics)
                         {
                             if (long.MaxValue - CustomAttributeFailedCount < truncatedCount)
                                 CustomAttributeFailedCount = long.MaxValue;
@@ -512,21 +524,37 @@ namespace Il2CppDumper
                             log.LogWarning($"WARNING: Custom attribute blob declares {reader.Count} attribute(s) but buffer only contains {availableCount} constructor record(s) on '{owner}' (token 0x{token:X8}); {truncatedCount} missing attribute(s) skipped.");
                         }
 
-                        return sb.ToString();
+                        return result;
                     }
                     catch (Exception ex)
                     {
-                        if (CustomAttributeFailedCount < long.MaxValue)
+                        if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
                             CustomAttributeFailedCount++;
-                        log.LogWarning($"WARNING: Failed to read custom attribute data on '{owner}' (token 0x{token:X8}): {ex.Message}");
-                        return string.Empty;
+                        if (countMetrics)
+                        {
+                            log.LogWarning($"WARNING: Failed to read custom attribute data on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                        }
+                        return result;
                     }
                 }
             }
-            else
-            {
+            return result;
+        }
+
+        public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "", string owner = null)
+        {
+            var list = GetCustomAttributeStrings(imageDef, customAttributeIndex, token, owner, countMetrics: true);
+            if (list.Count == 0)
                 return string.Empty;
+
+            var sb = new StringBuilder();
+            foreach (var item in list)
+            {
+                sb.Append(padding);
+                sb.Append(item);
+                sb.Append('\n');
             }
+            return sb.ToString();
         }
 
         private string ResolveOwnerFromToken(uint token)

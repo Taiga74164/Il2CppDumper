@@ -87,6 +87,12 @@ Provenance sidecar written at the start of every run (success or failure), recor
 
 **Português:** Arquivo lateral de proveniência (`dump-metadata.json`) gravado no início de cada execução (sucesso ou falha), registrando `tool` (`name`, `version`, `commit`), `inputs` (`il2cpp` e `metadata` com `path` resolvido, `length` e `sha256` em streaming), `metadataVersion` resolvida, `config` efetiva e `generatedAtUtc` (ISO-8601).
 
+#### dump.json
+
+Machine-readable dump output (`GenerateJsonDump`) capturing the same structured information as `dump.cs` in JSON format (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Types, fields, properties, and methods preserve declared `attributes` (including `[Serializable]` on decorated types).
+
+**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
+
 ### Configuration
 
 All the configuration options are located in `config.json`
@@ -96,8 +102,8 @@ Available options:
 * `DumpMethod`, `DumpField`, `DumpProperty`, `DumpAttribute`, `DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`
   * Whether to output these information to dump.cs (`DumpProperty` and `DumpAttribute` default to `true`)
 
-* `GenerateDummyDll`, `GenerateStruct`
-  * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, and `il2cpp.h`)
+* `GenerateDummyDll`, `GenerateStruct`, `GenerateJsonDump`
+  * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, and `il2cpp.h`; `GenerateJsonDump` controls `dump.json` output, defaults to `false`)
 
 * `DummyDllAddToken`
   * Whether to add token in DummyDll

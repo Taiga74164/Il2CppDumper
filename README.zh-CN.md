@@ -85,13 +85,19 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 **Português:** Arquivo lateral de proveniência (`dump-metadata.json`) gravado no início de cada execução (sucesso ou falha), registrando `tool` (`name`, `version`, `commit`), `inputs` (`il2cpp` e `metadata` com `path` resolvido, `length` e `sha256` em streaming), `metadataVersion` resolvida, `config` efetiva e `generatedAtUtc` (ISO-8601).
 
+#### dump.json
+
+机器可读的结构化转储输出（`GenerateJsonDump`），以 JSON 格式捕获与 `dump.cs` 相同的结构化信息（`types`、`fields`、`properties`、`methods`、`enums`、`nested`）。类型、字段、属性与方法均保留声明的 `attributes`（包括标记类的 `[Serializable]`）。
+
+**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
+
 ### 关于config.json
 
 * `DumpMethod`，`DumpField`，`DumpProperty`，`DumpAttribute`，`DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`
   * 是否在dump.cs输出相应的内容（`DumpProperty` 和 `DumpAttribute` 默认值为 `true`）
 
-* `GenerateDummyDll`，`GenerateStruct`
-  * 是否生成这些内容（`GenerateStruct` 控制 `StructGenerator` 输出的内容：`script.json`、`stringliteral.json` 和 `il2cpp.h`）
+* `GenerateDummyDll`，`GenerateStruct`，`GenerateJsonDump`
+  * 是否生成这些内容（`GenerateStruct` 控制 `StructGenerator` 输出的内容：`script.json`、`stringliteral.json` 和 `il2cpp.h`；`GenerateJsonDump` 控制 `dump.json` 输出，默认值为 `false`）
 
 * `DummyDllAddToken`
   * 是否在DummyDll中添加token
