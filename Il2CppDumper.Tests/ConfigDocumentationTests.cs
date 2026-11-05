@@ -212,5 +212,35 @@ namespace Il2CppDumper.Tests
                 Assert.True(prop != null, $"Property {option} documented in README.zh-CN.md must exist on Config class.");
             }
         }
+
+        [Fact]
+        public void Readme_English_DocumentsDumpMetadataJson_WithPortugueseSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### dump-metadata.json", content);
+            Assert.Contains("`sha256`", content);
+            Assert.Contains("`metadataVersion`", content);
+            Assert.Contains("`generatedAtUtc`", content);
+            Assert.Contains("**Português:**", content);
+            Assert.Contains("proveniência", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsDumpMetadataJson_WithPortugueseSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### dump-metadata.json", content);
+            Assert.Contains("`sha256`", content);
+            Assert.Contains("`metadataVersion`", content);
+            Assert.Contains("`generatedAtUtc`", content);
+            Assert.Contains("**Português:**", content);
+            Assert.Contains("proveniência", content);
+        }
     }
 }

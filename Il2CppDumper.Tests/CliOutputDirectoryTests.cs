@@ -395,17 +395,17 @@ namespace Il2CppDumper.Tests
                 Directory.CreateDirectory(fixturesDir);
 
                 var binPath1 = Path.Combine(fixturesDir, "file1.bin");
-                var binPath2 = Path.Combine(fixturesDir, "file2.bin");
+                var missingMetaPath = Path.Combine(fixturesDir, "missing-metadata.dat");
                 File.WriteAllBytes(binPath1, new byte[64]);
-                File.WriteAllBytes(binPath2, new byte[64]);
 
                 var destination = Path.Combine(fixturesDir, "should-not-exist");
 
-                var (exitCode, stdout, _) = RunCli(appDir, binPath1, binPath2, destination);
+                var (exitCode, stdout, _) = RunCli(appDir, binPath1, missingMetaPath, destination);
 
                 Assert.Equal(1, exitCode);
                 Assert.Contains("ERROR: Metadata file not found or encrypted.", stdout);
                 Assert.False(Directory.Exists(destination));
+                Assert.False(File.Exists(Path.Combine(appDir, "dump-metadata.json")));
             }
             finally
             {

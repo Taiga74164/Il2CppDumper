@@ -16,6 +16,7 @@ namespace Il2CppDumper
             config = JsonSerializer.Deserialize<Config>(File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + @"config.json"));
             string il2cppPath = null;
             string metadataPath = null;
+            string candidateMetadataPath = null;
             string outputDir = null;
 
             if (args.Length == 1)
@@ -46,6 +47,10 @@ namespace Il2CppDumper
                         {
                             il2cppPath = arg;
                         }
+                        else if (candidateMetadataPath == null)
+                        {
+                            candidateMetadataPath = arg;
+                        }
                     }
                     else if (Directory.Exists(arg))
                     {
@@ -57,9 +62,10 @@ namespace Il2CppDumper
                         outputDir = fullPath;
                     }
                 }
-                if (args.Length == 3 && outputDir == null && il2cppPath != null && metadataPath != null)
+                var effectiveMetadataArg = metadataPath ?? candidateMetadataPath;
+                if (args.Length == 3 && outputDir == null && il2cppPath != null && effectiveMetadataArg != null)
                 {
-                    var outDirArg = args.First(x => x != il2cppPath && x != metadataPath);
+                    var outDirArg = args.First(x => x != il2cppPath && x != effectiveMetadataArg);
                     try
                     {
                         Directory.CreateDirectory(outDirArg);
@@ -114,6 +120,17 @@ namespace Il2CppDumper
             var exitCode = 0;
             if (metadataPath == null)
             {
+                if (candidateMetadataPath != null)
+                {
+                    try
+                    {
+                        DumpMetadataWriter.WriteInitial(outputDir, il2cppPath, candidateMetadataPath, config);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+                }
                 Console.WriteLine($"ERROR: Metadata file not found or encrypted.");
                 exitCode = 1;
             }
@@ -121,7 +138,8 @@ namespace Il2CppDumper
             {
                 try
                 {
-                    if (Init(il2cppPath, metadataPath, out var metadata, out var il2Cpp))
+                    var dumpMetadata = DumpMetadataWriter.WriteInitial(outputDir, il2cppPath, metadataPath, config);
+                    if (Init(il2cppPath, metadataPath, out var metadata, out var il2Cpp, outputDir, dumpMetadata))
                     {
                         if (!Dump(metadata, il2Cpp, outputDir))
                         {
@@ -160,12 +178,16 @@ namespace Il2CppDumper
             Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
         }
 
-        private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp)
+        private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp, string outputDir = null, DumpMetadata dumpMetadata = null)
         {
             Console.WriteLine("Initializing metadata...");
             var metadataBytes = File.ReadAllBytes(metadataPath);
             metadata = new Metadata(new MemoryStream(metadataBytes));
             Console.WriteLine($"Metadata Version: {metadata.Version}");
+            if (outputDir != null && dumpMetadata != null)
+            {
+                DumpMetadataWriter.UpdateMetadataVersion(outputDir, dumpMetadata, metadata.Version);
+            }
 
             Console.WriteLine("Initializing il2cpp file...");
             var il2cppBytes = File.ReadAllBytes(il2cppPath);

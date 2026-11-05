@@ -81,6 +81,12 @@ For ida.py, ghidra.py and Il2CppBinaryNinja
 
 Contains all stringLiteral information
 
+#### dump-metadata.json
+
+Provenance sidecar written at the start of every run (success or failure), recording `tool` (`name`, `version`, `commit`), `inputs` (`il2cpp` and `metadata` resolved `path`, `length`, and streamed `sha256`), resolved `metadataVersion`, effective `config`, and `generatedAtUtc` (ISO-8601).
+
+**Português:** Arquivo lateral de proveniência (`dump-metadata.json`) gravado no início de cada execução (sucesso ou falha), registrando `tool` (`name`, `version`, `commit`), `inputs` (`il2cpp` e `metadata` com `path` resolvido, `length` e `sha256` em streaming), `metadataVersion` resolvida, `config` efetiva e `generatedAtUtc` (ISO-8601).
+
 ### Configuration
 
 All the configuration options are located in `config.json`
