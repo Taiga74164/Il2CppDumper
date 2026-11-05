@@ -106,7 +106,7 @@ namespace Il2CppDumper.Core
                     return new DumpResult(false, msg, warnings, outputs);
                 }
 
-                DumpMetadata dumpMetadata = null;
+                DumpMetadata? dumpMetadata = null;
                 try
                 {
                     dumpMetadata = DumpMetadataWriter.WriteInitial(outputDir, il2cppPath, metadataPath, config);
@@ -115,24 +115,28 @@ namespace Il2CppDumper.Core
                 catch (Exception e)
                 {
                     CoreLogger.WriteLine(e);
+                    var msg = $"ERROR: Failed to write dump metadata: {e.Message}";
+                    CoreLogger.WriteLine(msg);
+                    PopulateOutputs(outputDir, outputs);
+                    return new DumpResult(false, msg, warnings, outputs);
                 }
 
-                Metadata metadata = null;
-                Il2Cpp il2Cpp = null;
+                Metadata? metadata = null;
+                Il2Cpp? il2Cpp = null!;
                 try
                 {
-                    if (!Init(il2cppPath, metadataPath, config, out metadata, out il2Cpp, outputDir, dumpMetadata, request.MachoFatIndex))
+                    if (!Init(il2cppPath, metadataPath, config, out metadata, out il2Cpp, outputDir, dumpMetadata, request))
                     {
                         PopulateOutputs(outputDir, outputs);
                         return new DumpResult(false, "ERROR: An error occurred while processing.", warnings, outputs);
                     }
 
-                    var dumpSuccess = ExecuteDump(metadata, il2Cpp, config, outputDir);
+                    var dumpSuccess = ExecuteDump(metadata, il2Cpp, config, outputDir, out var dumpError);
                     PopulateOutputs(outputDir, outputs);
 
                     return new DumpResult(
                         dumpSuccess,
-                        dumpSuccess ? null : "ERROR: Some errors in dumping",
+                        dumpSuccess ? null : dumpError ?? "ERROR: An error occurred while processing.",
                         warnings,
                         outputs
                     );
@@ -159,9 +163,9 @@ namespace Il2CppDumper.Core
             Config config,
             out Metadata metadata,
             out Il2Cpp il2Cpp,
-            string outputDir = null,
-            DumpMetadata dumpMetadata = null,
-            int? machoFatIndex = null)
+            string? outputDir = null,
+            DumpMetadata? dumpMetadata = null,
+            DumpRequest? request = null)
         {
             CoreLogger.WriteLine("Initializing metadata...");
             var metadataBytes = File.ReadAllBytes(metadataPath);
@@ -206,13 +210,23 @@ namespace Il2CppDumper.Core
                     var machofat = new MachoFat(new MemoryStream(il2cppBytes));
                     if (machofat.fats == null || machofat.fats.Length == 0)
                     {
-                        il2Cpp = null;
+                        il2Cpp = null!;
                         return false;
                     }
                     int index;
-                    if (machoFatIndex.HasValue && machoFatIndex.Value >= 0 && machoFatIndex.Value < machofat.fats.Length)
+                    if (request?.MachoFatIndex != null && request.MachoFatIndex.Value >= 0 && request.MachoFatIndex.Value < machofat.fats.Length)
                     {
-                        index = machoFatIndex.Value;
+                        index = request.MachoFatIndex.Value;
+                    }
+                    else if (request?.MachoFatSelector != null)
+                    {
+                        var selected = request.MachoFatSelector(machofat.fats);
+                        if (!selected.HasValue || selected.Value < 0 || selected.Value >= machofat.fats.Length)
+                        {
+                            il2Cpp = null!;
+                            return false;
+                        }
+                        index = selected.Value;
                     }
                     else
                     {
@@ -249,10 +263,27 @@ namespace Il2CppDumper.Core
                 if (il2Cpp is ElfBase elf)
                 {
                     CoreLogger.WriteLine("Detected this may be a dump file.");
-                    il2Cpp.IsDumped = true;
-                    if (!config.NoRedirectedPointer)
+                    ulong? dumpAddr = null;
+                    if (request?.DumpAddress.HasValue == true)
                     {
-                        elf.Reload();
+                        dumpAddr = request.DumpAddress.Value;
+                    }
+                    else if (request?.DumpAddressPrompt != null)
+                    {
+                        dumpAddr = request.DumpAddressPrompt();
+                    }
+                    if (dumpAddr.HasValue && dumpAddr.Value != 0)
+                    {
+                        il2Cpp.ImageBase = dumpAddr.Value;
+                        il2Cpp.IsDumped = true;
+                        if (!config.NoRedirectedPointer)
+                        {
+                            elf.Reload();
+                        }
+                    }
+                    else
+                    {
+                        il2Cpp.IsDumped = true;
                     }
                 }
                 else
@@ -297,8 +328,29 @@ namespace Il2CppDumper.Core
 
                 if (!flag)
                 {
-                    CoreLogger.WriteLine("ERROR: Can't use auto mode to process file, try manual mode.");
-                    CoreLogger.WriteLine("TIP: You can run Il2CppInspectorRedux first to generate script.json");
+                    if (request?.CodeRegistration.HasValue == true && request?.MetadataRegistration.HasValue == true)
+                    {
+                        il2Cpp.Init(request.CodeRegistration.Value, request.MetadataRegistration.Value);
+                        flag = true;
+                    }
+                    else
+                    {
+                        CoreLogger.WriteLine("ERROR: Can't use auto mode to process file, try manual mode.");
+                        CoreLogger.WriteLine("TIP: You can run Il2CppInspectorRedux first to generate script.json");
+                        if (request?.ManualRegistrationPrompt != null)
+                        {
+                            var manual = request.ManualRegistrationPrompt();
+                            if (manual.HasValue)
+                            {
+                                il2Cpp.Init(manual.Value.CodeRegistration, manual.Value.MetadataRegistration);
+                                flag = true;
+                            }
+                        }
+                    }
+                }
+
+                if (!flag)
+                {
                     CoreLogger.WriteLine("ERROR: An error occurred while processing.");
                     return false;
                 }
@@ -321,15 +373,24 @@ namespace Il2CppDumper.Core
             return true;
         }
 
-        internal static bool ExecuteDump(Metadata metadata, Il2Cpp il2Cpp, Config config, string outputDir)
+        internal static bool ExecuteDump(Metadata metadata, Il2Cpp il2Cpp, Config config, string outputDir, out string? errorMessage)
         {
             var success = true;
+            var errors = new List<string>();
             CoreLogger.WriteLine("Dumping...");
             var executor = new Il2CppExecutor(metadata, il2Cpp);
             var decompiler = new Il2CppDecompiler(executor);
             if (!decompiler.Decompile(config, outputDir))
             {
                 success = false;
+                if (!string.IsNullOrEmpty(decompiler.ErrorMessage))
+                {
+                    errors.Add(decompiler.ErrorMessage);
+                }
+                else
+                {
+                    errors.Add("ERROR: Some errors in dumping");
+                }
             }
             CoreLogger.WriteLine("Done!");
             if (config.GenerateStruct)
@@ -345,6 +406,7 @@ namespace Il2CppDumper.Core
                 {
                     CoreLogger.WriteLine(e);
                     CoreLogger.WriteLine("ERROR: Some errors in generating struct");
+                    errors.Add("ERROR: Some errors in generating struct");
                     success = false;
                 }
             }
@@ -360,10 +422,17 @@ namespace Il2CppDumper.Core
                 {
                     CoreLogger.WriteLine(e);
                     CoreLogger.WriteLine("ERROR: Some errors in generating dummy dll");
+                    errors.Add("ERROR: Some errors in generating dummy dll");
                     success = false;
                 }
             }
+            errorMessage = errors.Count > 0 ? string.Join(Environment.NewLine, errors) : null;
             return success;
+        }
+
+        internal static bool ExecuteDump(Metadata metadata, Il2Cpp il2Cpp, Config config, string outputDir)
+        {
+            return ExecuteDump(metadata, il2Cpp, config, outputDir, out _);
         }
 
         private static void PopulateOutputs(string outputDir, Dictionary<string, string> outputs)

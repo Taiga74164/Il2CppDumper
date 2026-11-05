@@ -58,6 +58,7 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 `Il2CppDumper.Core` provides headless, in-process invocation without requiring console interaction or process spawning:
 
 ```csharp
+using Il2CppDumper;
 using Il2CppDumper.Core;
 
 var request = new DumpRequest

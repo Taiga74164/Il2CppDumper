@@ -87,6 +87,7 @@ namespace Il2CppDumper.Tests
             var content = File.ReadAllText(readmePath);
 
             Assert.Contains("### Library usage", content);
+            Assert.Contains("using Il2CppDumper;", content);
             Assert.Contains("`Il2CppDumper.Core`", content);
             Assert.Contains("DumpRequest", content);
             Assert.Contains("DumpResult", content);
@@ -102,6 +103,7 @@ namespace Il2CppDumper.Tests
             var content = File.ReadAllText(readmePath);
 
             Assert.Contains("### 类库调用（Library usage）", content);
+            Assert.Contains("using Il2CppDumper;", content);
             Assert.Contains("`Il2CppDumper.Core`", content);
             Assert.Contains("DumpRequest", content);
             Assert.Contains("DumpResult", content);

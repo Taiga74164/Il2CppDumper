@@ -158,31 +158,6 @@ namespace Il2CppDumper
             }
             else
             {
-                int? fatIndex = null;
-                try
-                {
-                    var file = File.ReadAllBytes(il2cppPath);
-                    if (file.Length >= 4)
-                    {
-                        var magic = BitConverter.ToUInt32(file, 0);
-                        if (magic == 0xCAFEBABE || magic == 0xBEBAFECA)
-                        {
-                            var machofat = new MachoFat(new MemoryStream(file));
-                            if (!TrySelectMachoFatIndex(Console.In, Console.Out, machofat.fats, out var selected))
-                            {
-                                exitCode = 1;
-                                Environment.ExitCode = 1;
-                                return 1;
-                            }
-                            fatIndex = selected;
-                        }
-                    }
-                }
-                catch
-                {
-                    // Let library report init failure
-                }
-
                 var request = new DumpRequest
                 {
                     ExecutablePath = il2cppPath,
@@ -190,7 +165,16 @@ namespace Il2CppDumper
                     OutputDirectory = outputDir,
                     Config = config,
                     Log = Console.Out,
-                    MachoFatIndex = fatIndex
+                    MachoFatSelector = fats =>
+                    {
+                        if (TrySelectMachoFatIndex(Console.In, Console.Out, fats, out var selectedIndex))
+                        {
+                            return selectedIndex;
+                        }
+                        return null;
+                    },
+                    DumpAddressPrompt = () => PromptDumpAddress(Console.In, Console.Out),
+                    ManualRegistrationPrompt = () => PromptManualRegistration(Console.In, Console.Out)
                 };
 
                 var result = Dumper.Dump(request);
@@ -213,6 +197,26 @@ namespace Il2CppDumper
             }
             Environment.ExitCode = exitCode;
             return exitCode;
+        }
+
+        internal static ulong? PromptDumpAddress(TextReader reader, TextWriter writer)
+        {
+            writer.Write("Input dump address or 0 to not set it: ");
+            var dumpAddrStr = reader.ReadLine();
+            if (ulong.TryParse(dumpAddrStr, System.Globalization.NumberStyles.HexNumber, null, out var dumpAddr) && dumpAddr != 0)
+            {
+                return dumpAddr;
+            }
+            return 0;
+        }
+
+        internal static (ulong CodeRegistration, ulong MetadataRegistration)? PromptManualRegistration(TextReader reader, TextWriter writer)
+        {
+            writer.Write("Input CodeRegistration: ");
+            var codeRegistration = Convert.ToUInt64(reader.ReadLine(), 16);
+            writer.Write("Input MetadataRegistration: ");
+            var metadataRegistration = Convert.ToUInt64(reader.ReadLine(), 16);
+            return (codeRegistration, metadataRegistration);
         }
 
         internal static bool TrySelectMachoFatIndex(TextReader reader, TextWriter writer, Fat[] fats, out int selectedIndex)

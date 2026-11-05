@@ -56,6 +56,7 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 `Il2CppDumper.Core` 提供了无控制台依赖（headless）、进程内直接调用的类型化 API，无需启动外部子进程或刮取终端文本：
 
 ```csharp
+using Il2CppDumper;
 using Il2CppDumper.Core;
 
 var request = new DumpRequest
