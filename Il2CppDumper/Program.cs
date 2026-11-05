@@ -45,18 +45,19 @@ namespace Il2CppDumper
                 {
                     if (File.Exists(arg))
                     {
-                        var file = File.ReadAllBytes(arg);
+                        var fullArg = Path.GetFullPath(arg);
+                        var file = File.ReadAllBytes(fullArg);
                         if (file.Length >= 4 && BitConverter.ToUInt32(file, 0) == 0xFAB11BAF)
                         {
-                            metadataPath = arg;
+                            metadataPath = fullArg;
                         }
                         else if (il2cppPath == null)
                         {
-                            il2cppPath = arg;
+                            il2cppPath = fullArg;
                         }
                         else if (candidateMetadataPath == null)
                         {
-                            candidateMetadataPath = arg;
+                            candidateMetadataPath = fullArg;
                         }
                     }
                     else if (Directory.Exists(arg))
@@ -72,7 +73,7 @@ namespace Il2CppDumper
                 var effectiveMetadataArg = metadataPath ?? candidateMetadataPath;
                 if (args.Length == 3 && outputDir == null && il2cppPath != null && effectiveMetadataArg != null)
                 {
-                    var outDirArg = args.First(x => x != il2cppPath && x != effectiveMetadataArg);
+                    var outDirArg = args.First(x => Path.GetFullPath(x) != il2cppPath && Path.GetFullPath(x) != effectiveMetadataArg);
                     try
                     {
                         Directory.CreateDirectory(outDirArg);
@@ -92,6 +93,11 @@ namespace Il2CppDumper
                 }
             }
             outputDir ??= AppDomain.CurrentDomain.BaseDirectory;
+            outputDir = Path.GetFullPath(outputDir);
+            if (!outputDir.EndsWith(Path.DirectorySeparatorChar.ToString()) && !outputDir.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+            {
+                outputDir += Path.DirectorySeparatorChar;
+            }
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 if (il2cppPath == null)
