@@ -488,6 +488,75 @@ namespace Il2CppDumper.Tests
             }
         }
 
+        [Theory]
+        [InlineData("blob.bin", true, true)]
+        [InlineData("blob.bin", false, true)]
+        [InlineData("blob.dat", false, true)]
+        [InlineData("custom-metadata.bin", false, true)]
+        [InlineData("blob.bin", true, false)]
+        [InlineData("blob.bin", false, false)]
+        [InlineData("blob.dat", false, false)]
+        [InlineData("custom-metadata.bin", false, false)]
+        public void Cli_FailedRun_UnsupportedBinaryAndInvalidOrTruncatedGenericMetadata_RegistersProvenanceRegardlessOfFileNameOrMagic(string metadataFileName, bool preCreateOutputDir, bool truncatedUnderFourBytes)
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-29-b3-generic-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                var badBinBytes = Encoding.ASCII.GetBytes("BAD!");
+                var badBinPath = Path.Combine(fixturesDir, "bad.bin");
+                File.WriteAllBytes(badBinPath, badBinBytes);
+                var expectedBadBinSha256 = Convert.ToHexString(SHA256.HashData(badBinBytes)).ToLowerInvariant();
+
+                var blobBytes = truncatedUnderFourBytes
+                    ? new byte[] { 0xAF, 0x1B, 0xB1 }
+                    : new byte[] { 0x00, 0x00, 0x00, 0x00, 0x1D, 0x00, 0x00, 0x00 };
+                var blobPath = Path.Combine(fixturesDir, metadataFileName);
+                File.WriteAllBytes(blobPath, blobBytes);
+                var expectedBlobSha256 = Convert.ToHexString(SHA256.HashData(blobBytes)).ToLowerInvariant();
+
+                var outputDir = Path.Combine(tempDir, preCreateOutputDir ? "existing-out" : "new-out");
+                if (preCreateOutputDir)
+                {
+                    Directory.CreateDirectory(outputDir);
+                }
+                else
+                {
+                    Assert.False(Directory.Exists(outputDir));
+                }
+
+                var (exitCode, stdout, _) = RunCli(appDir, badBinPath, blobPath, outputDir);
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Metadata file not found or encrypted.", stdout);
+
+                Assert.True(Directory.Exists(outputDir));
+                var sidecarPath = Path.Combine(outputDir, "dump-metadata.json");
+                Assert.True(File.Exists(sidecarPath));
+                Assert.False(File.Exists(Path.Combine(appDir, "dump-metadata.json")));
+
+                var parsed = JsonSerializer.Deserialize<DumpMetadata>(File.ReadAllText(sidecarPath))!;
+                Assert.NotNull(parsed);
+                Assert.Equal(0, parsed.MetadataVersion);
+                Assert.Equal(Path.GetFullPath(badBinPath), parsed.Inputs.Il2Cpp.Path);
+                Assert.Equal(4L, parsed.Inputs.Il2Cpp.Length);
+                Assert.Equal(expectedBadBinSha256, parsed.Inputs.Il2Cpp.Sha256);
+                Assert.Equal(Path.GetFullPath(blobPath), parsed.Inputs.Metadata.Path);
+                Assert.Equal((long)blobBytes.Length, parsed.Inputs.Metadata.Length);
+                Assert.Equal(expectedBlobSha256, parsed.Inputs.Metadata.Sha256);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
         [Fact]
         public void Cli_FailedRun_AutoSearchFails_StillWritesDumpMetadataSidecarWithResolvedMetadataVersion()
         {
