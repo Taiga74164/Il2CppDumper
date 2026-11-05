@@ -116,6 +116,73 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 **Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
 
+### 差异对比 (Diffing / Il2CppDumper.Diff)
+
+独立结构化比对工具，消费两次分析生成的结构化转储（`dump.json` 与 `script.json` 地址映射），输出机器可读的增量差异报告 `dump-diff.json`。
+
+```
+Il2CppDumper.Diff <left> <right> <output>
+```
+
+#### 输入 (Inputs)
+* `<left>`: 包含基线版本 `dump.json`（及可选的 `script.json`、`stringliteral-indexed.json`、`dump-metadata.json`）的目录或直接指向 `dump.json` 的文件路径。
+* `<right>`: 包含更新版本 `dump.json`（及可选的 `script.json`、`stringliteral-indexed.json`、`dump-metadata.json`）的目录或直接指向 `dump.json` 的文件路径。
+* `<output>`: 输出目录（将在此目录下生成 `dump-diff.json`）或目标 json 文件的完整路径。
+* 注意：`dump.cs` 文本绝不作为输入。
+
+#### 退出状态码 (Exit codes)
+* `0`: 完全一致（未发现差异）。
+* `1`: 发现差异。
+* `2`: 参数使用或输入错误。
+
+#### 数据模式参考 (Schema reference - `dump-diff.json`)
+```json
+{
+  "left":  { "source": "...", "sha256": "..." },
+  "right": { "source": "...", "sha256": "..." },
+  "types": {
+    "added": [ "Namespace.TypeName" ],
+    "removed": [ "Namespace.TypeName" ],
+    "changed": [
+      {
+        "type": "Namespace.TypeName",
+        "fields": {
+          "added": [ { "name": "f1", "type": "int", "offset": "0x10" } ],
+          "removed": [ { "name": "f2", "type": "string", "offset": "0x18" } ],
+          "changed": [ { "name": "f3", "left": { "name": "f3", "type": "int", "offset": "0x10" }, "right": { "name": "f3", "type": "long", "offset": "0x10" } } ]
+        },
+        "methods": {
+          "added": [ { "name": "m1", "returnType": "void", "parameters": [] } ],
+          "removed": [ { "name": "m2", "returnType": "void", "parameters": [] } ],
+          "changed": [ { "name": "m3", "left": { "name": "m3", "returnType": "void", "parameters": [] }, "right": { "name": "m3", "returnType": "int", "parameters": [] } } ]
+        }
+      }
+    ]
+  },
+  "methods": {
+    "addressChanged": [
+      { "type": "Namespace.TypeName", "method": "MethodName", "left": "0x1000", "right": "0x2000" }
+    ],
+    "note": "若某侧缺少 script.json 时的说明"
+  },
+  "literals": {
+    "addedByIndex": [ { "index": 12, "value": "new text" } ],
+    "valueChangedByIndex": [ { "index": 5, "left": "old text", "right": "new text" } ]
+  },
+  "summary": {
+    "addedTypes": 0,
+    "removedTypes": 0,
+    "addressChanges": 0,
+    "valueChanges": 0
+  }
+}
+```
+
+**Português:** Ferramenta autônoma de comparação estruturada (`Il2CppDumper.Diff`), consumindo dois dumps estruturados (`dump.json` e mapas de endereço de `script.json`) e emitindo um delta legível por máquina (`dump-diff.json`).
+* **Entradas:** diretórios ou caminhos diretos para `dump.json` de ambas as versões. `dump.cs` nunca é consumido.
+* **Códigos de saída:** `0` = idênticos, `1` = diferenças encontradas, `2` = erro de uso ou entrada.
+* **Esquema:** inclui hashes de proveniência (`dump-metadata.json` quando disponível ou SHA-256 do arquivo em streaming), tipos adicionados/removidos/alterados, métodos com endereços alterados, literais por índice e sumário.
+
 ### 关于config.json
 
 * `DumpMethod`，`DumpField`，`DumpProperty`，`DumpAttribute`，`DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`

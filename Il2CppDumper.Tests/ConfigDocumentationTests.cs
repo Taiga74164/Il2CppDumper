@@ -367,5 +367,52 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`dataIndex` 与 `length`", content);
             Assert.Contains("**Uso forense:**", content);
         }
+        [Fact]
+        public void Readme_English_DocumentsDiffingSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("### Diffing (Il2CppDumper.Diff)", content);
+            Assert.Contains("Il2CppDumper.Diff <left> <right> <output>", content);
+            Assert.Contains("#### Inputs", content);
+            Assert.Contains("`dump.json`", content);
+            Assert.Contains("`dump.cs` text is never an input", content);
+            Assert.Contains("#### Exit codes", content);
+            Assert.Contains("`0`: Identical", content);
+            Assert.Contains("`1`: Differences found", content);
+            Assert.Contains("`2`: Usage / input error", content);
+            Assert.Contains("#### Schema reference (`dump-diff.json`)", content);
+            Assert.Contains("\"addressChanged\"", content);
+            Assert.Contains("\"addedByIndex\"", content);
+            Assert.Contains("\"valueChangedByIndex\"", content);
+            Assert.Contains("\"summary\"", content);
+            Assert.Contains("**Português:**", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsDiffingSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("### 差异对比 (Diffing / Il2CppDumper.Diff)", content);
+            Assert.Contains("Il2CppDumper.Diff <left> <right> <output>", content);
+            Assert.Contains("#### 输入 (Inputs)", content);
+            Assert.Contains("`dump.json`", content);
+            Assert.Contains("`dump.cs` 文本绝不作为输入", content);
+            Assert.Contains("#### 退出状态码 (Exit codes)", content);
+            Assert.Contains("`0`: 完全一致", content);
+            Assert.Contains("`1`: 发现差异", content);
+            Assert.Contains("`2`: 参数使用或输入错误", content);
+            Assert.Contains("#### 数据模式参考 (Schema reference - `dump-diff.json`)", content);
+            Assert.Contains("\"addressChanged\"", content);
+            Assert.Contains("\"addedByIndex\"", content);
+            Assert.Contains("\"valueChangedByIndex\"", content);
+            Assert.Contains("\"summary\"", content);
+            Assert.Contains("**Português:**", content);
+        }
     }
 }
