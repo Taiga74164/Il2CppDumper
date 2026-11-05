@@ -446,7 +446,7 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
-        public void Cli_WhitespaceOutputDirectory_ReturnsExitCode1_AndEmitsControlledErrorMessage()
+        public void Cli_WhitespaceOutputDirectory_PreservesPlatformSpecificContract_AndNeverCrashes()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-26-spaceout-" + Guid.NewGuid());
             Directory.CreateDirectory(tempDir);
@@ -460,10 +460,21 @@ namespace Il2CppDumper.Tests
 
                 var (exitCode, stdout, stderr) = RunCli(appDir, wasmPath, metaPath, "   ");
 
-                Assert.Equal(1, exitCode);
-                Assert.Contains("ERROR: Failed to create output directory:", stdout);
                 Assert.DoesNotContain("Unhandled exception", stdout, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("Unhandled exception", stderr, StringComparison.OrdinalIgnoreCase);
+
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    Assert.Equal(1, exitCode);
+                    Assert.Contains("ERROR: Failed to create output directory:", stdout);
+                }
+                else
+                {
+                    Assert.Equal(0, exitCode);
+                    var outputDir = Path.Combine(appDir, "   ");
+                    Assert.True(Directory.Exists(outputDir), $"Expected output directory at {outputDir}");
+                    Assert.True(File.Exists(Path.Combine(outputDir, "dump.cs")), $"Expected dump.cs in {outputDir}");
+                }
             }
             finally
             {
