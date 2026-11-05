@@ -194,6 +194,42 @@ namespace Il2CppDumper
             return exitCode;
         }
 
+        internal static bool TrySelectMachoFatIndex(TextReader reader, TextWriter writer, Fat[] fats, out int selectedIndex)
+        {
+            selectedIndex = -1;
+            if (fats == null || fats.Length == 0)
+            {
+                writer.WriteLine("ERROR: No platforms available in FAT Mach-O binary.");
+                return false;
+            }
+
+            while (true)
+            {
+                writer.Write("Select Platform: ");
+                for (var i = 0; i < fats.Length; i++)
+                {
+                    var fat = fats[i];
+                    writer.Write(fat.magic == 0xFEEDFACF ? $"{i + 1}.64bit " : $"{i + 1}.32bit ");
+                }
+                writer.WriteLine();
+
+                var line = reader.ReadLine();
+                if (line == null)
+                {
+                    writer.WriteLine("ERROR: Unexpected end of input while selecting platform.");
+                    return false;
+                }
+
+                if (int.TryParse(line.Trim(), out var choice) && choice >= 1 && choice <= fats.Length)
+                {
+                    selectedIndex = choice - 1;
+                    return true;
+                }
+
+                writer.WriteLine($"Invalid selection. Please enter a number between 1 and {fats.Length}.");
+            }
+        }
+
         static void ShowHelp()
         {
             Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory> [--output-json]");
@@ -242,17 +278,13 @@ namespace Il2CppDumper
                 case 0xCAFEBABE: //FAT Mach-O
                 case 0xBEBAFECA:
                     var machofat = new MachoFat(new MemoryStream(il2cppBytes));
-                    Console.Write("Select Platform: ");
-                    for (var i = 0; i < machofat.fats.Length; i++)
+                    if (!TrySelectMachoFatIndex(Console.In, Console.Out, machofat.fats, out var index))
                     {
-                        var fat = machofat.fats[i];
-                        Console.Write(fat.magic == 0xFEEDFACF ? $"{i + 1}.64bit " : $"{i + 1}.32bit ");
+                        il2Cpp = null;
+                        return false;
                     }
-                    Console.WriteLine();
-                    var key = Console.ReadKey(true);
-                    var index = int.Parse(key.KeyChar.ToString()) - 1;
-                    var magic = machofat.fats[index % 2].magic;
-                    il2cppBytes = machofat.GetMacho(index % 2);
+                    var magic = machofat.fats[index].magic;
+                    il2cppBytes = machofat.GetMacho(index);
                     il2CppMemory = new MemoryStream(il2cppBytes);
                     if (magic == 0xFEEDFACF)
                         goto case 0xFEEDFACF;
