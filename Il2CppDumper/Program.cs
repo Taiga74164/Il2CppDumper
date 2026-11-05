@@ -17,6 +17,7 @@ namespace Il2CppDumper
             string il2cppPath = null;
             string metadataPath = null;
             string candidateMetadataPath = null;
+            bool il2cppHasSupportedMagic = false;
             string outputDir = null;
 
             if (args.Length == 1)
@@ -46,8 +47,12 @@ namespace Il2CppDumper
                         else if (il2cppPath == null)
                         {
                             il2cppPath = arg;
+                            il2cppHasSupportedMagic = IsSupportedIl2CppBinary(file);
                         }
-                        else if (candidateMetadataPath == null)
+                        else if (candidateMetadataPath == null &&
+                                 (il2cppHasSupportedMagic ||
+                                  Path.GetExtension(arg).Equals(".dat", StringComparison.OrdinalIgnoreCase) ||
+                                  Path.GetFileName(arg).Contains("metadata", StringComparison.OrdinalIgnoreCase)))
                         {
                             candidateMetadataPath = arg;
                         }
@@ -62,9 +67,10 @@ namespace Il2CppDumper
                         outputDir = fullPath;
                     }
                 }
-                if (args.Length == 3 && outputDir == null && il2cppPath != null && metadataPath != null)
+                var effectiveMetadataArg = metadataPath ?? candidateMetadataPath;
+                if (args.Length == 3 && outputDir == null && il2cppPath != null && effectiveMetadataArg != null)
                 {
-                    var outDirArg = args.First(x => x != il2cppPath && x != metadataPath);
+                    var outDirArg = args.First(x => x != il2cppPath && x != effectiveMetadataArg);
                     try
                     {
                         Directory.CreateDirectory(outDirArg);
@@ -175,6 +181,23 @@ namespace Il2CppDumper
         static void ShowHelp()
         {
             Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
+        }
+
+        private static bool IsSupportedIl2CppBinary(byte[] file)
+        {
+            if (file.Length < 4)
+            {
+                return false;
+            }
+            var magic = BitConverter.ToUInt32(file, 0);
+            return magic == 0x6D736100
+                || magic == 0x304F534E
+                || (magic & 0xFFFF) == 0x5A4D
+                || magic == 0x464c457f
+                || magic == 0xCAFEBABE
+                || magic == 0xBEBAFECA
+                || magic == 0xFEEDFACF
+                || magic == 0xFEEDFACE;
         }
 
         private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp, string outputDir = null, DumpMetadata dumpMetadata = null)
