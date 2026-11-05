@@ -415,4 +415,63 @@ namespace Il2CppDumper.Tests
                 }
             }
         }
-    }}
+
+        [Fact]
+        public void Cli_EmptyStringOutputDirectory_ReturnsExitCode1_AndEmitsControlledErrorMessage()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-26-emptyout-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                (var wasmPath, var metaPath) = CreateSyntheticFixtures(fixturesDir);
+
+                var (exitCode, stdout, stderr) = RunCli(appDir, wasmPath, metaPath, "");
+
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Failed to create output directory:", stdout);
+                Assert.DoesNotContain("Unhandled exception", stdout, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("Unhandled exception", stderr, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Cli_WhitespaceOutputDirectory_ReturnsExitCode1_AndEmitsControlledErrorMessage()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-issue-26-spaceout-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                (var wasmPath, var metaPath) = CreateSyntheticFixtures(fixturesDir);
+
+                var (exitCode, stdout, stderr) = RunCli(appDir, wasmPath, metaPath, "   ");
+
+                Assert.Equal(1, exitCode);
+                Assert.Contains("ERROR: Failed to create output directory:", stdout);
+                Assert.DoesNotContain("Unhandled exception", stdout, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("Unhandled exception", stderr, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+    }
+}

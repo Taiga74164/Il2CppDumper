@@ -41,6 +41,10 @@ namespace Il2CppDumper
             }
             if (args.Length > 1)
             {
+                string rawIl2cppArg = null;
+                string rawMetadataArg = null;
+                string rawCandidateMetadataArg = null;
+
                 foreach (var arg in args)
                 {
                     if (File.Exists(arg))
@@ -50,14 +54,17 @@ namespace Il2CppDumper
                         if (file.Length >= 4 && BitConverter.ToUInt32(file, 0) == 0xFAB11BAF)
                         {
                             metadataPath = fullArg;
+                            rawMetadataArg = arg;
                         }
                         else if (il2cppPath == null)
                         {
                             il2cppPath = fullArg;
+                            rawIl2cppArg = arg;
                         }
                         else if (candidateMetadataPath == null)
                         {
                             candidateMetadataPath = fullArg;
+                            rawCandidateMetadataArg = arg;
                         }
                     }
                     else if (Directory.Exists(arg))
@@ -71,11 +78,12 @@ namespace Il2CppDumper
                     }
                 }
                 var effectiveMetadataArg = metadataPath ?? candidateMetadataPath;
+                var rawEffectiveMetadataArg = rawMetadataArg ?? rawCandidateMetadataArg;
                 if (args.Length == 3 && outputDir == null && il2cppPath != null && effectiveMetadataArg != null)
                 {
-                    var outDirArg = args.First(x => Path.GetFullPath(x) != il2cppPath && Path.GetFullPath(x) != effectiveMetadataArg);
                     try
                     {
+                        var outDirArg = args.First(x => x != rawIl2cppArg && x != rawEffectiveMetadataArg);
                         Directory.CreateDirectory(outDirArg);
                         var fullPath = Path.GetFullPath(outDirArg);
                         if (!fullPath.EndsWith(Path.DirectorySeparatorChar.ToString()) && !fullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
