@@ -91,12 +91,18 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 #### stringliteral.json
 
-包含由 `StructGenerator` 生成的所有 stringLiteral 结构化信息（`index`、`value`、`address`、`dataIndex`、`length`）。
+包含由 `StructGenerator` 生成的所有 stringLiteral 引用信息（`value`、`address`）。保留二进制文件中的所有内存引用和调用点地址。
 
-**取证用途（Forensic usage）：** 在逆向分析二进制文件或反编译 IL 中通过索引引用字符串字面量的调用点（例如 `GetStringLiteralFromIndex(n)`）时，可以通过匹配 `index = n` 直接定位解析。`dataIndex` 与 `length` 字段提供了在 metadata 字符串字面量数据区段内的精确相对字节偏移与长度，便于与 `global-metadata.dat` 原始字节进行比对验证。若需在混淆游戏版本或补丁更新之间比对字符串表，可通过 `index` 关联条目进行 diff（例如 `jq '.[] | {index, value}' stringliteral.json`）。
+**Português:** Contém todas as referências de uso de stringLiteral emitidas pelo `StructGenerator` (`value`, `address`). Preserva todas as referências de memória e endereços de chamada no binário.
 
-**Português:** Contém todas as informações de literais de string emitidas pelo `StructGenerator` como JSON estruturado (`index`, `value`, `address`, `dataIndex`, `length`).
-**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral.json`).
+#### stringliteral-indexed.json
+
+包含由 `StructGenerator` 生成的完整 stringLiteral 取证结构化表（`index`、`value`、`dataIndex`、`length`）。提供 `global-metadata.dat` 中每个字面量的严格顺序 1 对 1 映射表（包含未被引用的字面量和末尾条目）。
+
+**取证用途（Forensic usage）：** 在逆向分析二进制文件或反编译 IL 中通过索引引用字符串字面量的调用点（例如 `GetStringLiteralFromIndex(n)`）时，可以通过匹配 `index = n` 直接定位解析。`dataIndex` 与 `length` 字段提供了在 metadata 字符串字面量数据区段内的精确相对字节偏移与长度，便于与 `global-metadata.dat` 原始字节进行比对验证。若需在混淆游戏版本或补丁更新之间比对字符串表，可通过 `index` 关联条目进行 diff（例如 `jq '.[] | {index, value}' stringliteral-indexed.json`）。
+
+**Português:** Tabela forense completa de literais de string emitida pelo `StructGenerator` como JSON estruturado (`index`, `value`, `dataIndex`, `length`). Fornece uma tabela estritamente sequencial e 1-para-1 de cada literal no `global-metadata.dat` (incluindo literais sem referência e a última entrada).
+**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral-indexed.json`).
 
 #### dump-metadata.json
 
@@ -116,7 +122,7 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
   * 是否在dump.cs输出相应的内容（`DumpProperty` 和 `DumpAttribute` 默认值为 `true`）
 
 * `GenerateDummyDll`，`GenerateStruct`，`GenerateJsonDump`
-  * 是否生成这些内容（`GenerateStruct` 控制 `StructGenerator` 输出的内容：`script.json`、`stringliteral.json` 和 `il2cpp.h`；`GenerateJsonDump` 控制 `dump.json` 输出，默认值为 `false`）
+  * 是否生成这些内容（`GenerateStruct` 控制 `StructGenerator` 输出的内容：`script.json`、`stringliteral.json`、`stringliteral-indexed.json` 和 `il2cpp.h`；`GenerateJsonDump` 控制 `dump.json` 输出，默认值为 `false`）
 
 * `DummyDllAddToken`
   * 是否在DummyDll中添加token

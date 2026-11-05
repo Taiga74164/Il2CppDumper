@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using Xunit;
 
@@ -25,6 +24,9 @@ namespace Il2CppDumper.Tests
             Buffer.BlockCopy(literalDataBytes, 0, streamBytes, (int)m.header.stringLiteralDataOffset, literalDataBytes.Length);
 
             m.stringLiterals = dataIndices.Select(idx => new Il2CppStringLiteral { dataIndex = idx }).ToArray();
+            m.typeDefs = Array.Empty<Il2CppTypeDefinition>();
+            m.methodDefs = Array.Empty<Il2CppMethodDefinition>();
+            m.imageDefs = Array.Empty<Il2CppImageDefinition>();
             return m;
         }
 
@@ -46,6 +48,9 @@ namespace Il2CppDumper.Tests
             Buffer.BlockCopy(literalDataBytes, 0, streamBytes, m.header.stringLiteralData.offset, literalDataBytes.Length);
 
             m.stringLiterals = dataIndices.Select(idx => new Il2CppStringLiteral { dataIndex = idx }).ToArray();
+            m.typeDefs = Array.Empty<Il2CppTypeDefinition>();
+            m.methodDefs = Array.Empty<Il2CppMethodDefinition>();
+            m.imageDefs = Array.Empty<Il2CppImageDefinition>();
             return m;
         }
 
@@ -63,6 +68,9 @@ namespace Il2CppDumper.Tests
             Buffer.BlockCopy(literalDataBytes, 0, streamBytes, (int)m.header.stringLiteralDataOffset, literalDataBytes.Length);
 
             m.stringLiterals = literals.Select(l => new Il2CppStringLiteral { length = l.length, dataIndex = l.dataIndex }).ToArray();
+            m.typeDefs = Array.Empty<Il2CppTypeDefinition>();
+            m.methodDefs = Array.Empty<Il2CppMethodDefinition>();
+            m.imageDefs = Array.Empty<Il2CppImageDefinition>();
             return m;
         }
 
@@ -80,21 +88,50 @@ namespace Il2CppDumper.Tests
             Buffer.BlockCopy(literalDataBytes, 0, streamBytes, (int)m.header.stringLiteralDataOffset, literalDataBytes.Length);
 
             m.stringLiterals = dataIndices.Select(idx => new Il2CppStringLiteral { dataIndex = idx }).ToArray();
+            m.typeDefs = Array.Empty<Il2CppTypeDefinition>();
+            m.methodDefs = Array.Empty<Il2CppMethodDefinition>();
+            m.imageDefs = Array.Empty<Il2CppImageDefinition>();
             return m;
         }
 
-        private class LegacyStringLiteralConsumerModel
+        private sealed class TestIl2CppV35 : Il2Cpp
+        {
+            private readonly SectionHelper _sectionHelper;
+
+            public TestIl2CppV35(Stream stream, SectionHelper sectionHelper) : base(stream)
+            {
+                Version = 35;
+                                Is32Bit = true;
+                _sectionHelper = sectionHelper;
+                types = Array.Empty<Il2CppType>();
+                methodSpecs = Array.Empty<Il2CppMethodSpec>();
+                methodPointers = Array.Empty<ulong>();
+                codeGenModuleMethodPointers = new Dictionary<string, ulong[]>();
+                genericMethodPointers = Array.Empty<ulong>();
+                invokerPointers = Array.Empty<ulong>();
+                reversePInvokeWrappers = Array.Empty<ulong>();
+                unresolvedVirtualCallPointers = Array.Empty<ulong>();
+            }
+
+            public override ulong MapVATR(ulong addr) => addr;
+            public override ulong MapRTVA(ulong addr)
+            {
+                if (addr == 1024) return 0x400;
+                if (addr == 1028) return 0x404;
+                return addr;
+            }
+            public override ulong GetRVA(ulong addr) => addr;
+            public override bool Search() => false;
+            public override bool PlusSearch(int methodCount, int typeDefinitionsCount, int imageCount) => false;
+            public override bool SymbolSearch() => false;
+            public override SectionHelper GetSectionHelper(int methodCount, int typeDefinitionsCount, int imageCount) => _sectionHelper;
+            public override bool CheckDump() => false;
+        }
+
+        private class LegacyStringLiteralEntry
         {
             public string value { get; set; } = string.Empty;
             public string address { get; set; } = string.Empty;
-        }
-
-        private class ForensicStringLiteralConsumerModel
-        {
-            public uint index { get; set; }
-            public string value { get; set; } = string.Empty;
-            public int dataIndex { get; set; }
-            public int length { get; set; }
         }
 
         [Fact]
@@ -137,9 +174,6 @@ namespace Il2CppDumper.Tests
                 var nextStart = i + 1 < records.Count ? records[i + 1].dataIndex : dataBytes.Length;
                 Assert.Equal(nextStart, extentEnd);
             }
-
-            // Default address is "0x0" when unmapped
-            Assert.All(records, r => Assert.Equal("0x0", r.address));
         }
 
         [Fact]
@@ -250,66 +284,28 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
-        public void DumpStringLiterals_AddressMapping_PopulatesRvaWhenPresent()
+        public void DumpStringLiterals_JsonSerialization_MatchesExpectedShape()
         {
             var dataBytes = Encoding.UTF8.GetBytes("alphabravocharlie");
             using var m = CreateV35Metadata(dataBytes, 0, 5, 10);
 
-            var addressMap = new Dictionary<uint, ulong>
-            {
-                [0] = 0x2000,
-                [2] = 0x3500
-            };
-
-            var records = m.DumpStringLiterals(addressMap, addr => addr - 0x1000);
-
-            Assert.Equal("0x1000", records[0].address);
-            Assert.Equal("0x0", records[1].address); // Unmapped literal has "0x0"
-            Assert.Equal("0x2500", records[2].address);
-        }
-
-        [Fact]
-        public void DumpStringLiterals_JsonSerialization_AdditiveBackwardCompatibility()
-        {
-            var dataBytes = Encoding.UTF8.GetBytes("alphabravocharlie");
-            using var m = CreateV35Metadata(dataBytes, 0, 5, 10);
-
-            var addressMap = new Dictionary<uint, ulong>
-            {
-                [0] = 0x00401000,
-                [1] = 0x00402000,
-                [2] = 0x00403000
-            };
-
-            var records = m.DumpStringLiterals(addressMap, addr => addr);
+            var records = m.DumpStringLiterals();
 
             var jsonOptions = new JsonSerializerOptions
             {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                WriteIndented = true
             };
             var json = JsonSerializer.Serialize(records, jsonOptions);
 
-            // Assert additive fields exist in JSON string
+            // Assert exact forensic fields exist in JSON string without address
             Assert.Contains("\"index\": 0", json);
             Assert.Contains("\"value\": \"alpha\"", json);
-            Assert.Contains("\"address\": \"0x401000\"", json);
             Assert.Contains("\"dataIndex\": 0", json);
             Assert.Contains("\"length\": 5", json);
+            Assert.DoesNotContain("\"address\"", json);
 
-            // Existing consumers expecting legacy shape { value, address } continue working seamlessly
-            var legacyConsumers = JsonSerializer.Deserialize<List<LegacyStringLiteralConsumerModel>>(json);
-            Assert.NotNull(legacyConsumers);
-            Assert.Equal(3, legacyConsumers.Count);
-            Assert.Equal("alpha", legacyConsumers[0].value);
-            Assert.Equal("0x401000", legacyConsumers[0].address);
-            Assert.Equal("bravo", legacyConsumers[1].value);
-            Assert.Equal("0x402000", legacyConsumers[1].address);
-            Assert.Equal("charlie", legacyConsumers[2].value);
-            Assert.Equal("0x403000", legacyConsumers[2].address);
-
-            // Forensic consumers expecting new shape { index, value, dataIndex, length }
-            var forensicConsumers = JsonSerializer.Deserialize<List<ForensicStringLiteralConsumerModel>>(json);
+            // Forensic consumers expecting shape { index, value, dataIndex, length }
+            var forensicConsumers = JsonSerializer.Deserialize<List<StringLiteralRecord>>(json);
             Assert.NotNull(forensicConsumers);
             Assert.Equal(3, forensicConsumers.Count);
             Assert.Equal(0u, forensicConsumers[0].index);
@@ -379,6 +375,98 @@ namespace Il2CppDumper.Tests
             Assert.Equal(string.Empty, records[2].value);
             Assert.Equal(999, records[2].dataIndex);
             Assert.Equal(0, records[2].length);
+        }
+
+        [Fact]
+        public void WriteScript_DuplicateReferencesAndNonAscii_PreservesLegacyStringLiteralAndScriptJsonEscaping_AndEmitsIndexedForensicTable()
+        {
+            // Exact reproduction fixture from B1 & B2 review:
+            // Metadata v35 with 2 string literals:
+            //   Index 0: "á<alpha>" (9 bytes UTF-8)
+            //   Index 1: "bravo" (5 bytes UTF-8)
+            // Total data bytes = 14
+            var literalBytes = Encoding.UTF8.GetBytes("á<alpha>bravo");
+            using var m = CreateV35Metadata(literalBytes, 0, 9);
+
+            // Synthetic Il2Cpp stream containing 2 valid metadata usage tokens for index 0
+            // at offsets 1024 and 1028:
+            var ilBytes = new byte[4096];
+            // encodedToken: usage kIl2CppMetadataUsageStringLiteral (5), decodedIndex 0
+            // metadataValue == ((5 << 29) | (0 << 1)) + 1 == 0xA0000001u
+            var token = ((uint)Il2CppMetadataUsage.kIl2CppMetadataUsageStringLiteral << 29) | (0u << 1) + 1;
+            BitConverter.GetBytes(token).CopyTo(ilBytes, 1024);
+            BitConverter.GetBytes(token).CopyTo(ilBytes, 1028);
+
+            var sectionHelper = new SectionHelper(new WebAssemblyMemory(new MemoryStream(new byte[16]), 0), 0, 0, 0, 0);
+            sectionHelper.SetSection(SearchSectionType.Data, new SearchSection { offset = 1024, offsetEnd = 2048 });
+
+            using var il = new TestIl2CppV35(new MemoryStream(ilBytes), sectionHelper);
+            var executor = new Il2CppExecutor(m, il);
+            var generator = new StructGenerator(executor);
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-struct-b1-b2-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                generator.WriteScript(tempDir + Path.DirectorySeparatorChar);
+
+                // --- B1 Verification on stringliteral.json (Legacy Output) ---
+                var legacyPath = Path.Combine(tempDir, "stringliteral.json");
+                Assert.True(File.Exists(legacyPath));
+                var legacyJson = File.ReadAllText(legacyPath);
+                var legacyEntries = JsonSerializer.Deserialize<List<LegacyStringLiteralEntry>>(legacyJson);
+                Assert.NotNull(legacyEntries);
+
+                // Both references to index 0 ("á<alpha>") at 0x400 and 0x404 MUST be preserved
+                Assert.Equal(2, legacyEntries.Count);
+                Assert.Equal("á<alpha>", legacyEntries[0].value);
+                Assert.Equal("0x400", legacyEntries[0].address);
+                Assert.Equal("á<alpha>", legacyEntries[1].value);
+                Assert.Equal("0x404", legacyEntries[1].address);
+
+                // Unreferenced literal "bravo" MUST NOT be in legacy stringliteral.json (exact parity with base)
+                Assert.DoesNotContain(legacyEntries, e => e.value == "bravo");
+
+                // --- B1 Verification on stringliteral-indexed.json (Forensic Output) ---
+                var indexedPath = Path.Combine(tempDir, "stringliteral-indexed.json");
+                Assert.True(File.Exists(indexedPath));
+                var indexedJson = File.ReadAllText(indexedPath);
+                var indexedEntries = JsonSerializer.Deserialize<List<StringLiteralRecord>>(indexedJson);
+                Assert.NotNull(indexedEntries);
+
+                // Must contain EVERY literal from metadata (both index 0 and index 1)
+                Assert.Equal(2, indexedEntries.Count);
+                Assert.Equal(0u, indexedEntries[0].index);
+                Assert.Equal("á<alpha>", indexedEntries[0].value);
+                Assert.Equal(0, indexedEntries[0].dataIndex);
+                Assert.Equal(9, indexedEntries[0].length);
+
+                Assert.Equal(1u, indexedEntries[1].index);
+                Assert.Equal("bravo", indexedEntries[1].value);
+                Assert.Equal(9, indexedEntries[1].dataIndex);
+                Assert.Equal(5, indexedEntries[1].length);
+
+                // Extents must match
+                Assert.Equal(0 + 9, indexedEntries[0].dataIndex + indexedEntries[0].length);
+                Assert.Equal(9 + 5, indexedEntries[1].dataIndex + indexedEntries[1].length);
+
+                // --- B2 Verification on script.json (Standard JSON Escaping) ---
+                var scriptPath = Path.Combine(tempDir, "script.json");
+                Assert.True(File.Exists(scriptPath));
+                var scriptJson = File.ReadAllText(scriptPath);
+
+                // script.json MUST retain standard .NET JSON escaping for non-ASCII and '< >'
+                // exactly like the base code without UnsafeRelaxedJsonEscaping
+                Assert.Contains("\\u00E1\\u003Calpha\\u003E", scriptJson);
+                Assert.DoesNotContain("á<alpha>", scriptJson);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
         }
     }
 }

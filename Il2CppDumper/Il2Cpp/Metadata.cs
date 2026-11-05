@@ -962,7 +962,7 @@ namespace Il2CppDumper
             return TryGetStringLiteral(index, out var value, out _, out _) ? value : string.Empty;
         }
 
-        public List<StringLiteralRecord> DumpStringLiterals(Dictionary<uint, ulong> addressMap = null, Func<ulong, ulong> getRva = null)
+        public List<StringLiteralRecord> DumpStringLiterals()
         {
             var result = new List<StringLiteralRecord>();
             if (stringLiterals == null)
@@ -984,12 +984,6 @@ namespace Il2CppDumper
                     record.value = val;
                     record.dataIndex = dIdx;
                     record.length = len;
-                }
-
-                if (addressMap != null && addressMap.TryGetValue(i, out var addr))
-                {
-                    var rva = getRva != null ? getRva(addr) : addr;
-                    record.address = $"0x{rva:X}";
                 }
 
                 result.Add(record);

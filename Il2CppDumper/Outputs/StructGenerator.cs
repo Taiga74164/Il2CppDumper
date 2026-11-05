@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using static Il2CppDumper.Il2CppConstants;
 
@@ -16,7 +15,6 @@ namespace Il2CppDumper
         private readonly Metadata metadata;
         private readonly Il2Cpp il2Cpp;
         private readonly Dictionary<Il2CppTypeDefinition, string> typeDefImageNames = new();
-        private readonly Dictionary<uint, ulong> stringLiteralAddressDic = new();
         private readonly HashSet<string> structNameHashSet = new(StringComparer.Ordinal);
         private readonly List<StructInfo> structInfoList = new();
         private readonly Dictionary<string, StructInfo> structInfoWithStructName = new();
@@ -370,9 +368,16 @@ namespace Il2CppDumper
                 }
             }
             //输出单独的StringLiteral
-            var stringLiterals = DumpStringLiterals();
-            var jsonOptions = new JsonSerializerOptions() { WriteIndented = true, IncludeFields = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            var stringLiterals = json.ScriptString.Select(x => new
+            {
+                value = x.Value,
+                address = $"0x{x.Address:X}"
+            }).ToArray();
+            var jsonOptions = new JsonSerializerOptions() { WriteIndented = true, IncludeFields = true };
             File.WriteAllText(outputDir + "stringliteral.json", JsonSerializer.Serialize(stringLiterals, jsonOptions), new UTF8Encoding(false));
+            //输出按索引排序的完整StringLiteral取证表
+            var indexedStringLiterals = metadata.DumpStringLiterals();
+            File.WriteAllText(outputDir + "stringliteral-indexed.json", JsonSerializer.Serialize(indexedStringLiterals, jsonOptions), new UTF8Encoding(false));
             //写入文件
             File.WriteAllText(outputDir + "script.json", JsonSerializer.Serialize(json, jsonOptions));
             //il2cpp.h
@@ -497,7 +502,7 @@ namespace Il2CppDumper
 
         public List<StringLiteralRecord> DumpStringLiterals()
         {
-            return metadata.DumpStringLiterals(stringLiteralAddressDic, il2Cpp.GetRVA);
+            return metadata.DumpStringLiterals();
         }
 
         private void AddMetadataUsageStringLiteral(ScriptJson json, uint index, ulong address)
@@ -506,7 +511,6 @@ namespace Il2CppDumper
             json.ScriptString.Add(scriptString);
             scriptString.Address = il2Cpp.GetRVA(address);
             scriptString.Value = metadata.GetStringLiteralFromIndex(index);
-            stringLiteralAddressDic.TryAdd(index, address);
         }
 
         private void AddMetadataUsageMethodRef(ScriptJson json, uint index, ulong address)

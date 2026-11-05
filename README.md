@@ -93,12 +93,18 @@ For ida.py, ghidra.py and Il2CppBinaryNinja
 
 #### stringliteral.json
 
-Contains all stringLiteral information emitted by `StructGenerator` as structured JSON (`index`, `value`, `address`, `dataIndex`, `length`).
+Contains all stringLiteral reference usages emitted by `StructGenerator` (`value`, `address`). Preserves all memory references and call-site addresses in the binary.
 
-**Forensic usage:** When analyzing binaries or decompiled IL call sites that reference string literals by index (e.g., `GetStringLiteralFromIndex(n)`), entries can be resolved directly by querying `index = n`. The `dataIndex` and `length` fields provide exact section-relative byte offsets and sizes within the metadata string literal data section for byte-level validation against `global-metadata.dat`. To diff string tables across obfuscated game builds or patch updates, correlate entries by `index` (e.g. `jq '.[] | {index, value}' stringliteral.json`).
+**Português:** Contém todas as referências de uso de stringLiteral emitidas pelo `StructGenerator` (`value`, `address`). Preserva todas as referências de memória e endereços de chamada no binário.
 
-**Português:** Contém todas as informações de literais de string emitidas pelo `StructGenerator` como JSON estruturado (`index`, `value`, `address`, `dataIndex`, `length`).
-**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral.json`).
+#### stringliteral-indexed.json
+
+Complete forensic string literal table emitted by `StructGenerator` as structured JSON (`index`, `value`, `dataIndex`, `length`). Provides a strictly sequential, 1-to-1 table of every literal in `global-metadata.dat` (including unreferenced literals and the final entry).
+
+**Forensic usage:** When analyzing binaries or decompiled IL call sites that reference string literals by index (e.g., `GetStringLiteralFromIndex(n)`), entries can be resolved directly by querying `index = n`. The `dataIndex` and `length` fields provide exact section-relative byte offsets and sizes within the metadata string literal data section for byte-level validation against `global-metadata.dat`. To diff string tables across obfuscated game builds or patch updates, correlate entries by `index` (e.g. `jq '.[] | {index, value}' stringliteral-indexed.json`).
+
+**Português:** Tabela forense completa de literais de string emitida pelo `StructGenerator` como JSON estruturado (`index`, `value`, `dataIndex`, `length`). Fornece uma tabela estritamente sequencial e 1-para-1 de cada literal no `global-metadata.dat` (incluindo literais sem referência e a última entrada).
+**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral-indexed.json`).
 
 #### dump-metadata.json
 
@@ -122,7 +128,7 @@ Available options:
   * Whether to output these information to dump.cs (`DumpProperty` and `DumpAttribute` default to `true`)
 
 * `GenerateDummyDll`, `GenerateStruct`, `GenerateJsonDump`
-  * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, and `il2cpp.h`; `GenerateJsonDump` controls `dump.json` output, defaults to `false`)
+  * Whether to generate these things (`GenerateStruct` controls `StructGenerator` output: `script.json`, `stringliteral.json`, `stringliteral-indexed.json`, and `il2cpp.h`; `GenerateJsonDump` controls `dump.json` output, defaults to `false`)
 
 * `DummyDllAddToken`
   * Whether to add token in DummyDll
