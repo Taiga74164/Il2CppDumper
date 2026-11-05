@@ -376,6 +376,7 @@ namespace Il2CppDumper.Tests
 
             string currentNamespace = "";
             JsonDumpType? currentType = null;
+            string? expectedEnumUnderlyingType = null;
             var inType = false;
 
             for (var lineIndex = 0; lineIndex < csLines.Length; lineIndex++)
@@ -401,6 +402,7 @@ namespace Il2CppDumper.Tests
                     var fullName = string.IsNullOrEmpty(currentNamespace) ? typeName : $"{currentNamespace}.{typeName}";
                     Assert.True(allTypes.ContainsKey(fullName), $"Type '{fullName}' from dump.cs must exist in dump.json");
                     currentType = allTypes[fullName];
+                    expectedEnumUnderlyingType = null;
                     inType = true;
 
                     if (checkAttributes)
@@ -422,6 +424,7 @@ namespace Il2CppDumper.Tests
                 if (line == "}")
                 {
                     currentType = null;
+                    expectedEnumUnderlyingType = null;
                     inType = false;
                     continue;
                 }
@@ -440,8 +443,18 @@ namespace Il2CppDumper.Tests
 
                     var jsonEnum = currentType.enums.FirstOrDefault();
                     Assert.True(jsonEnum != null, $"Enum constant '{constName}' declared in '{currentType.fullName}', but no enum found in dump.json type.");
-                    Assert.True(currentType.fullName.EndsWith(enumTypeName) || jsonEnum.name == enumTypeName,
-                        $"Enum name mismatch in dump.json for '{currentType.fullName}'. Expected '{enumTypeName}', got '{jsonEnum.name}'");
+                    
+                    // Explicitly compare enum identity:
+                    Assert.Equal(enumTypeName, jsonEnum.name);
+
+                    // Explicitly compare underlyingType from value__ field in dump.cs:
+                    var expectedUnderlying = expectedEnumUnderlyingType 
+                        ?? currentType.fields.FirstOrDefault(f => f.name == "value__")?.type;
+                    if (!string.IsNullOrEmpty(expectedUnderlying))
+                    {
+                        Assert.Equal(expectedUnderlying, jsonEnum.underlyingType);
+                    }
+
                     Assert.True(jsonEnum.constants.ContainsKey(constName),
                         $"Enum constant '{constName}' not found in JsonDumpEnum for '{currentType.fullName}'");
                     Assert.Equal(constVal, jsonEnum.constants[constName].ToString());
@@ -522,6 +535,10 @@ namespace Il2CppDumper.Tests
                 {
                     var fldType = fieldMatch.Groups[1].Value;
                     var fldName = fieldMatch.Groups[2].Value;
+                    if (fldName == "value__")
+                    {
+                        expectedEnumUnderlyingType = fldType;
+                    }
                     var foundField = currentType.fields.FirstOrDefault(f => f.name == fldName);
                     Assert.True(foundField != null, $"Field '{fldName}' from dump.cs must be present in declaring JsonDumpType '{currentType.fullName}'");
                     Assert.Equal(fldType, foundField.type);
@@ -870,6 +887,148 @@ namespace Il2CppDumper.Tests
 
                     var ex = Assert.Throws<TrueException>(() => AssertParity(csLines, model, checkAttributes: false));
                     Assert.Contains("Ready", ex.UserMessage);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_EnumNameMismatch()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-enumnameonly-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var mode = allTypes.First(t => t.fullName == "Repro.Mode");
+
+                    // Adulterar apenas o name do enum
+                    mode.enums[0].name = "TamperedModeName";
+
+                    Assert.Throws<EqualException>(() => AssertParity(csLines, model, checkAttributes: false));
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_EnumUnderlyingTypeMismatch()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-enumtypeonly-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var mode = allTypes.First(t => t.fullName == "Repro.Mode");
+
+                    // Adulterar apenas o underlyingType do enum
+                    mode.enums[0].underlyingType = "byte";
+
+                    Assert.Throws<EqualException>(() => AssertParity(csLines, model, checkAttributes: false));
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_EnumNameAndUnderlyingTypeMismatch()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-enumboth-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var mode = allTypes.First(t => t.fullName == "Repro.Mode");
+
+                    // Adulterar ambos (name e underlyingType)
+                    mode.enums[0].name = "TamperedModeName";
+                    mode.enums[0].underlyingType = "byte";
+
+                    Assert.Throws<EqualException>(() => AssertParity(csLines, model, checkAttributes: false));
                 }
                 finally
                 {
