@@ -13,9 +13,23 @@ This fork includes experimental adaptations for newer Unity/IL2CPP metadata vers
 
 The newer-version support has only been self-tested on a small number of games. IL2CPP layouts, metadata formats, and protections vary by Unity version, platform, and project. If a specific game cannot be dumped, you need to debug and modify the source code yourself. I do not provide one-by-one adaptation for every game or protected build.
 
-## Disclaimer
+## Positioning
 
-This project is provided for learning, research, interoperability, and analysis of software you own or are authorized to inspect. Do not use it to infringe copyright, bypass access control, cheat in online services, or violate any law or terms of service. You are responsible for how you use this tool.
+This fork is maintained for reverse engineering work — including the use cases upstream frowns on. That is deliberate.
+
+**In scope:**
+
+* Forensic analysis and security research of IL2CPP applications
+* Cheat development and anti-cheat research on games you analyze
+* Protection and obfuscation research (metadata obfuscation included — it is on-topic, not rejected)
+* Protocol and client reconstruction, mod development, interoperability
+* Automation and tooling built on top of the generated outputs (`dump.cs`, `dump.json`, `il2cpp.h`, DummyDll, `script.json`)
+
+Feature requests, fixes, and improvements should target these workflows. Issues asking how to comply with a game's EULA are out of scope; issues about parsing harder targets are in.
+
+## Legal
+
+MIT licensed, inherited from upstream. Your responsibility, your jurisdiction, your target. Nothing here grants a right to break a contract or a law — those are yours to weigh.
 
 ## Features
 
@@ -124,7 +138,7 @@ Available options:
 
 #### `ERROR: Metadata file supplied is not valid metadata file.`  
 
-Make sure you choose the correct file. Sometimes games may obfuscate this file for content protection purposes and so on. Deobfuscating of such files is beyond the scope of this program, so please **DO NOT** file an issue regarding to deobfuscating.
+Make sure you choose the correct file. Games may obfuscate this file for content protection purposes. Obfuscated metadata is a supported research target here, but per-game adaptation is not guaranteed — expect to debug and patch the parser yourself.
 
 If your file is `libil2cpp.so` and you have a rooted Android phone, you can try my other project [Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper), it can bypass this protection.
 

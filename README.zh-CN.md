@@ -11,9 +11,23 @@ Unity il2cpp逆向工程
 
 高版本适配只在少量游戏上做过自测。不同 Unity 版本、平台、项目配置和保护方式都会影响 dump 结果。如果遇到无法 dump 的游戏，需要自行调试并修改源码适配。本项目不承诺对每个游戏或每个保护壳做一一适配。
 
-## 免责声明
+## 定位
 
-本项目仅用于学习、研究、互操作分析，以及对你拥有或已获授权的软件进行分析。请勿用于侵犯版权、绕过访问控制、破坏线上服务公平性，或违反法律法规及服务条款的行为。使用本工具产生的一切后果由使用者自行承担。
+本 Fork 面向逆向工程工作——包括上游明确不欢迎的用例。这是有意为之。
+
+**在范围内：**
+
+* IL2CPP 应用的取证分析与安全研究
+* 对所分析游戏的作弊开发与反作弊研究
+* 保护与混淆研究（metadata 混淆属于合法研究目标，不拒绝处理）
+* 协议与客户端重建、模组开发、互操作
+* 基于生成产物的自动化与工具链（`dump.cs`、`dump.json`、`il2cpp.h`、DummyDll、`script.json`）
+
+功能请求、修复与改进应围绕这些工作流。询问如何遵守某游戏 EULA 的 issue 不在范围内；关于解析更难目标的 issue 在范围内。
+
+## 法律声明
+
+基于上游的 MIT 许可证。责任在你，司法辖区在你，目标对象也在你。本文不授予违反合同或法律的权利——那是你自己权衡的事。
 
 ## 功能
 
@@ -118,7 +132,7 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 #### `ERROR: Metadata file supplied is not valid metadata file.`
 
-global-metadata.dat已被加密。关于解密的问题请去相关破解论坛寻求帮助，请不要在issues提问！
+global-metadata.dat已被加密。加密/混淆的 metadata 在本项目中属于受支持的研究目标，但不承诺对具体游戏逐一适配——请自行调试并修改解析器。
 
 如果你的文件是`libil2cpp.so`并且你拥有一台已root的安卓手机，你可以尝试我的另一个项目[Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper)，它能够无视global-metadata.dat加密
 
