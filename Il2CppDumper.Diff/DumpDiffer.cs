@@ -213,6 +213,7 @@ namespace Il2CppDumper.Diff
             if (leftArtifacts.ScriptMethods != null && rightArtifacts.ScriptMethods != null)
             {
                 var addressChanges = new List<DumpDiffAddressChange>();
+                var ambiguityNotes = new List<string>();
 
                 var leftGrouped = leftArtifacts.ScriptMethods
                     .GroupBy(m => (m.TypeName, m.MethodName))
@@ -248,40 +249,61 @@ namespace Il2CppDumper.Diff
                     }
                     else
                     {
-                        // Overloads: match identifiable overloads by Signature without guessing
-                        var matchedRight = new HashSet<ScriptMethodEntry>();
+                        // Overloads: group by Signature order-independently
+                        var leftBySig = leftEntries
+                            .GroupBy(m => m.Signature ?? "")
+                            .ToDictionary(g => g.Key, g => g.ToList());
 
-                        foreach (var lm in leftEntries)
+                        var rightBySig = rightEntries
+                            .GroupBy(m => m.Signature ?? "")
+                            .ToDictionary(g => g.Key, g => g.ToList());
+
+                        var commonSigs = leftBySig.Keys.Intersect(rightBySig.Keys)
+                            .OrderBy(s => s, StringComparer.Ordinal);
+
+                        foreach (var sig in commonSigs)
                         {
-                            if (!string.IsNullOrEmpty(lm.Signature))
-                            {
-                                var candidates = rightEntries
-                                    .Where(rm => !matchedRight.Contains(rm) && rm.Signature == lm.Signature)
-                                    .ToList();
+                            var leftSigEntries = leftBySig[sig];
+                            var rightSigEntries = rightBySig[sig];
 
-                                if (candidates.Count == 1)
+                            var sortedLeft = leftSigEntries.Select(e => e.Address).OrderBy(a => a).ToList();
+                            var sortedRight = rightSigEntries.Select(e => e.Address).OrderBy(a => a).ToList();
+
+                            var unmatchedLeft = new List<ulong>();
+                            var remainingRight = new List<ulong>(sortedRight);
+
+                            foreach (var lAddr in sortedLeft)
+                            {
+                                var rIndex = remainingRight.IndexOf(lAddr);
+                                if (rIndex >= 0)
                                 {
-                                    var rm = candidates[0];
-                                    matchedRight.Add(rm);
-                                    if (lm.Address != rm.Address)
-                                    {
-                                        addressChanges.Add(new DumpDiffAddressChange
-                                        {
-                                            type = key.TypeName,
-                                            method = lm.Signature,
-                                            left = $"0x{lm.Address:X}",
-                                            right = $"0x{rm.Address:X}"
-                                        });
-                                    }
+                                    remainingRight.RemoveAt(rIndex);
                                 }
-                                else if (candidates.Count > 1)
+                                else
                                 {
-                                    var sameAddr = candidates.FirstOrDefault(c => c.Address == lm.Address);
-                                    if (sameAddr != null)
-                                    {
-                                        matchedRight.Add(sameAddr);
-                                    }
+                                    unmatchedLeft.Add(lAddr);
                                 }
+                            }
+                            var unmatchedRight = remainingRight;
+
+                            if (unmatchedLeft.Count == 1 && unmatchedRight.Count == 1)
+                            {
+                                var displayMethod = !string.IsNullOrEmpty(sig) ? sig : key.MethodName;
+                                addressChanges.Add(new DumpDiffAddressChange
+                                {
+                                    type = key.TypeName,
+                                    method = displayMethod,
+                                    left = $"0x{unmatchedLeft[0]:X}",
+                                    right = $"0x{unmatchedRight[0]:X}"
+                                });
+                            }
+                            else if (unmatchedLeft.Count > 0 && unmatchedRight.Count > 0)
+                            {
+                                result.hasAmbiguousMethodAddresses = true;
+                                var desc = !string.IsNullOrEmpty(sig)
+                                    ? sig
+                                    : (!string.IsNullOrEmpty(key.TypeName) ? $"{key.TypeName}.{key.MethodName}" : key.MethodName);
+                                ambiguityNotes.Add(desc);
                             }
                         }
                     }
@@ -291,7 +313,16 @@ namespace Il2CppDumper.Diff
                     .OrderBy(x => x.type, StringComparer.Ordinal)
                     .ThenBy(x => x.method, StringComparer.Ordinal)
                     .ToList();
-                result.methods.note = null;
+
+                if (ambiguityNotes.Count > 0)
+                {
+                    var distinctNotes = ambiguityNotes.Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal);
+                    result.methods.note = $"Address comparison has unresolved ambiguous overloads: unable to correlate {string.Join("; ", distinctNotes)}";
+                }
+                else
+                {
+                    result.methods.note = null;
+                }
             }
             else
             {
@@ -523,48 +554,82 @@ namespace Il2CppDumper.Diff
                     var list = new List<ScriptMethodEntry>();
                     foreach (var item in scriptMethods.EnumerateArray())
                     {
-                        if (item.TryGetProperty("Name", out var nameEl) &&
-                            item.TryGetProperty("Address", out var addrEl))
+                        if (!item.TryGetProperty("Name", out var nameEl) || nameEl.ValueKind != JsonValueKind.String)
                         {
-                            var name = nameEl.GetString() ?? "";
-                            ulong addr = 0;
-                            if (addrEl.ValueKind == JsonValueKind.Number)
+                            throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item is missing required string property 'Name'.");
+                        }
+                        var name = nameEl.GetString();
+                        if (string.IsNullOrEmpty(name))
+                        {
+                            throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item has empty 'Name'.");
+                        }
+
+                        if (!item.TryGetProperty("Address", out var addrEl))
+                        {
+                            throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item '{name}' is missing required property 'Address'.");
+                        }
+
+                        ulong addr;
+                        if (addrEl.ValueKind == JsonValueKind.Number)
+                        {
+                            if (!addrEl.TryGetUInt64(out addr))
                             {
-                                addr = addrEl.GetUInt64();
+                                throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item '{name}' has invalid numeric Address.");
                             }
-                            else if (addrEl.ValueKind == JsonValueKind.String)
+                        }
+                        else if (addrEl.ValueKind == JsonValueKind.String)
+                        {
+                            var str = addrEl.GetString();
+                            if (string.IsNullOrWhiteSpace(str))
                             {
-                                var str = addrEl.GetString();
-                                if (!string.IsNullOrEmpty(str) && str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                                    ulong.TryParse(str.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out addr);
-                                else
-                                    ulong.TryParse(str, out addr);
+                                throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item '{name}' has empty Address string.");
                             }
 
-                            var sig = item.TryGetProperty("Signature", out var sigEl) ? (sigEl.GetString() ?? "") : "";
-
-                            var sep = name.IndexOf("$$");
-                            string typeName;
-                            string methodName;
-                            if (sep >= 0)
+                            bool parsed;
+                            if (str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                             {
-                                typeName = name.Substring(0, sep);
-                                methodName = name.Substring(sep + 2);
+                                parsed = ulong.TryParse(str.Substring(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out addr);
                             }
                             else
                             {
-                                typeName = "";
-                                methodName = name;
+                                parsed = ulong.TryParse(str, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out addr);
                             }
 
-                            list.Add(new ScriptMethodEntry
+                            if (!parsed)
                             {
-                                TypeName = typeName,
-                                MethodName = methodName,
-                                Signature = sig,
-                                Address = addr
-                            });
+                                throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item '{name}' has invalid Address format '{str}'.");
+                            }
                         }
+                        else
+                        {
+                            throw new InvalidDataException($"Failed to parse {label} script.json: ScriptMethod item '{name}' has incompatible Address type '{addrEl.ValueKind}'.");
+                        }
+
+                        var sig = item.TryGetProperty("Signature", out var sigEl) && sigEl.ValueKind == JsonValueKind.String
+                            ? (sigEl.GetString() ?? "")
+                            : "";
+
+                        var sep = name.IndexOf("$$");
+                        string typeName;
+                        string methodName;
+                        if (sep >= 0)
+                        {
+                            typeName = name.Substring(0, sep);
+                            methodName = name.Substring(sep + 2);
+                        }
+                        else
+                        {
+                            typeName = "";
+                            methodName = name;
+                        }
+
+                        list.Add(new ScriptMethodEntry
+                        {
+                            TypeName = typeName,
+                            MethodName = methodName,
+                            Signature = sig,
+                            Address = addr
+                        });
                     }
                     artifacts.ScriptMethods = list;
                 }

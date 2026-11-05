@@ -15,13 +15,18 @@ namespace Il2CppDumper.Diff
         public DumpDiffSummary summary { get; set; } = new();
 
         [JsonIgnore]
+        public bool hasAmbiguousMethodAddresses { get; set; }
+
+        [JsonIgnore]
         public bool HasDifferences =>
             types.added.Count > 0 ||
             types.removed.Count > 0 ||
             types.changed.Count > 0 ||
             (methods.addressChanged != null && methods.addressChanged.Count > 0) ||
             literals.addedByIndex.Count > 0 ||
-            literals.valueChangedByIndex.Count > 0;
+            literals.valueChangedByIndex.Count > 0 ||
+            hasAmbiguousMethodAddresses ||
+            (methods.note != null && methods.note.StartsWith("Address comparison has unresolved ambiguous overloads", StringComparison.Ordinal));
     }
 
     public class DumpDiffEndpoint

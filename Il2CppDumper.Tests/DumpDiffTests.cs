@@ -1178,5 +1178,363 @@ namespace Il2CppDumper.Tests
                 }
             }
         }
+
+        [Fact]
+        public void Diff_AmbiguousSignatures_OrderIndependent_EmitsConsistentChange()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-ambig-order-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var left1Dir = Path.Combine(tempDir, "left1");
+                var right1Dir = Path.Combine(tempDir, "right1");
+                var out1Path = Path.Combine(tempDir, "diff1.json");
+
+                var left2Dir = Path.Combine(tempDir, "left2");
+                var right2Dir = Path.Combine(tempDir, "right2");
+                var out2Path = Path.Combine(tempDir, "diff2.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Overloaded",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "Process", returnType = "uint16_t" },
+                                new() { name = "Process", returnType = "uint16_t" }
+                            }
+                        }
+                    }
+                };
+
+                var sigSame = "uint16_t Game.Overloaded$$Process (Game.Overloaded* __this, uint16_t v, const MethodInfo* method);";
+
+                // Order 1: Left [0x1000, 0x2000], Right [0x2000, 0x3000]
+                var leftScript1 = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x1000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x2000 }
+                    }
+                };
+                var rightScript1 = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x2000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x3000 }
+                    }
+                };
+
+                CreateDumpFixtures(left1Dir, model, leftScript1);
+                CreateDumpFixtures(right1Dir, model, rightScript1);
+
+                var exit1 = DumpDiffer.Execute(left1Dir, right1Dir, out1Path);
+
+                // Order 2: Inverted order on both sides
+                var leftScript2 = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x2000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x1000 }
+                    }
+                };
+                var rightScript2 = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x3000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x2000 }
+                    }
+                };
+
+                CreateDumpFixtures(left2Dir, model, leftScript2);
+                CreateDumpFixtures(right2Dir, model, rightScript2);
+
+                var exit2 = DumpDiffer.Execute(left2Dir, right2Dir, out2Path);
+
+                Assert.Equal(1, exit1);
+                Assert.Equal(1, exit2);
+
+                var diff1 = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(out1Path))!;
+                var diff2 = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(out2Path))!;
+
+                Assert.NotNull(diff1.methods.addressChanged);
+                Assert.Single(diff1.methods.addressChanged);
+                Assert.Equal("0x1000", diff1.methods.addressChanged[0].left);
+                Assert.Equal("0x3000", diff1.methods.addressChanged[0].right);
+
+                Assert.NotNull(diff2.methods.addressChanged);
+                Assert.Single(diff2.methods.addressChanged);
+                Assert.Equal("0x1000", diff2.methods.addressChanged[0].left);
+                Assert.Equal("0x3000", diff2.methods.addressChanged[0].right);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_AmbiguousSignatures_AllAddressesChanged_EmitsNoteAndExit1()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-ambig-all-changed-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Overloaded",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "Process", returnType = "uint16_t" },
+                                new() { name = "Process", returnType = "uint16_t" }
+                            }
+                        }
+                    }
+                };
+
+                var sigSame = "uint16_t Game.Overloaded$$Process (Game.Overloaded* __this, uint16_t v, const MethodInfo* method);";
+
+                // All addresses changed: Left [0x1000, 0x2000] vs Right [0x3000, 0x4000]
+                var leftScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x1000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x2000 }
+                    }
+                };
+                var rightScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x3000 },
+                        new() { Name = "Game.Overloaded$$Process", Signature = sigSame, Address = 0x4000 }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, model, leftScript);
+                CreateDumpFixtures(rightDir, model, rightScript);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(1, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+
+                Assert.True(diff.HasDifferences);
+                Assert.NotNull(diff.methods.addressChanged);
+                Assert.Empty(diff.methods.addressChanged); // No arbitrary 1-to-1 matching
+                Assert.NotNull(diff.methods.note);
+                Assert.Contains("Address comparison has unresolved ambiguous overloads: unable to correlate", diff.methods.note);
+                Assert.Contains(sigSame, diff.methods.note);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_ScriptJson_InvalidAddressString_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-script-bad-addr-str-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // script.json with non-numeric string address
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"Foo$$Bar\", \"Address\": \"not-an-address\"}]}", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("script.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_ScriptJson_InvalidAddressBoolean_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-script-bad-addr-bool-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // script.json with boolean address
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"Foo$$Bar\", \"Address\": true}]}", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("script.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_ScriptJson_MissingAddress_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-script-missing-addr-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // script.json missing Address property
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"Foo$$Bar\"}]}", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("script.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_ScriptJson_MissingName_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-script-missing-name-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // script.json missing Name property
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Address\": \"0x1000\"}]}", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("script.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_ScriptJson_ValidNumericZeroAddress_Accepted()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-script-zero-addr-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Abstract",
+                            methods = new List<JsonDumpMethod> { new() { name = "AbstractMethod", returnType = "void" } }
+                        }
+                    }
+                };
+
+                Directory.CreateDirectory(leftDir);
+                Directory.CreateDirectory(rightDir);
+
+                File.WriteAllText(Path.Combine(leftDir, "dump.json"), JsonSerializer.Serialize(model), Encoding.UTF8);
+                File.WriteAllText(Path.Combine(rightDir, "dump.json"), JsonSerializer.Serialize(model), Encoding.UTF8);
+
+                // Left has numeric 0, Right has string "0x0"
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"Game.Abstract$$AbstractMethod\", \"Address\": 0}]}", Encoding.UTF8);
+                File.WriteAllText(Path.Combine(rightDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"Game.Abstract$$AbstractMethod\", \"Address\": \"0x0\"}]}", Encoding.UTF8);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(0, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.False(diff.HasDifferences);
+                Assert.NotNull(diff.methods.addressChanged);
+                Assert.Empty(diff.methods.addressChanged);
+                Assert.Null(diff.methods.note);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
     }
 }
