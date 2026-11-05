@@ -19,7 +19,7 @@ Unity il2cpp逆向工程
 
 * IL2CPP 应用的取证分析与安全研究
 * 对所分析游戏的作弊开发与反作弊研究
-* 保护与混淆研究（metadata 混淆属于合法研究目标，不拒绝处理）
+* 保护与混淆研究（metadata 混淆属于受支持的研究目标，不拒绝处理）
 * 协议与客户端重建、模组开发、互操作
 * 基于生成产物的自动化与工具链（`dump.cs`、`dump.json`、`il2cpp.h`、DummyDll、`script.json`）
 
