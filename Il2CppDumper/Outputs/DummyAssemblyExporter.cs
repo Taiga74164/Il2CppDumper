@@ -9,18 +9,17 @@ namespace Il2CppDumper
     {
         public static void Export(Il2CppExecutor il2CppExecutor, string outputDir, bool addToken)
         {
-            Directory.SetCurrentDirectory(outputDir);
-            if (Directory.Exists("DummyDll"))
-                Directory.Delete("DummyDll", true);
-            Directory.CreateDirectory("DummyDll");
-            Directory.SetCurrentDirectory("DummyDll");
+            var dummyDllDirectory = Path.Combine(outputDir, "DummyDll");
+            if (Directory.Exists(dummyDllDirectory))
+                Directory.Delete(dummyDllDirectory, true);
+            Directory.CreateDirectory(dummyDllDirectory);
             var dummy = new DummyAssemblyGenerator(il2CppExecutor, addToken);
             foreach (var assembly in dummy.Assemblies)
             {
                 SanitizeConstants(assembly);
                 SanitizeMemberReferences(assembly);
                 SanitizeCustomAttributes(assembly);
-                File.WriteAllBytes(assembly.MainModule.Name, WriteAssembly(assembly));
+                File.WriteAllBytes(Path.Combine(dummyDllDirectory, assembly.MainModule.Name), WriteAssembly(assembly));
             }
         }
 
