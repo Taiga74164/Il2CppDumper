@@ -53,6 +53,38 @@ The program will then generate all the output files in current working directory
 Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 ```
 
+### Library usage
+
+`Il2CppDumper.Core` provides headless, in-process invocation without requiring console interaction or process spawning:
+
+```csharp
+using Il2CppDumper.Core;
+
+var request = new DumpRequest
+{
+    ExecutablePath = "GameAssembly.dll",
+    MetadataPath = "global-metadata.dat",
+    OutputDirectory = "output",           // optional; null uses a temporary directory
+    Config = new Config(),                // optional; null uses default documented settings
+    Log = Console.Out                     // optional; null for silent operation
+};
+
+DumpResult result = Dumper.Dump(request);
+if (result.Success)
+{
+    foreach (var (artifact, path) in result.Outputs)
+    {
+        Console.WriteLine($"{artifact} -> {path}");
+    }
+}
+else
+{
+    Console.WriteLine($"Dump failed: {result.Error}");
+}
+```
+
+> **Note on `RequireAnyKey`:** When invoking `Il2CppDumper.Core` in-process, `Config.RequireAnyKey` has **no effect**. The library never blocks or prompts for key presses during unattended or automated runs.
+
 ### Outputs
 
 #### DummyDll

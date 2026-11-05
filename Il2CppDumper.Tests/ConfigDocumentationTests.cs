@@ -80,6 +80,36 @@ namespace Il2CppDumper.Tests
         }
 
         [Fact]
+        public void Readme_English_DocumentsLibraryUsage_WithDumpRequestContractAndRequireAnyKeyNote()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("### Library usage", content);
+            Assert.Contains("`Il2CppDumper.Core`", content);
+            Assert.Contains("DumpRequest", content);
+            Assert.Contains("DumpResult", content);
+            Assert.Contains("Dumper.Dump", content);
+            Assert.Contains("`RequireAnyKey`", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsLibraryUsage_WithDumpRequestContractAndRequireAnyKeyNote()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("### 类库调用（Library usage）", content);
+            Assert.Contains("`Il2CppDumper.Core`", content);
+            Assert.Contains("DumpRequest", content);
+            Assert.Contains("DumpResult", content);
+            Assert.Contains("Dumper.Dump", content);
+            Assert.Contains("`RequireAnyKey`", content);
+        }
+
+        [Fact]
         public void Config_DeserializingGenerateStructFalse_DisablesGenerationGate()
         {
             // Verifies the exact scenario from Issue #11:

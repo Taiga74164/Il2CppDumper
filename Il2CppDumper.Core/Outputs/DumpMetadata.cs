@@ -133,7 +133,7 @@ namespace Il2CppDumper
 
         public static DumpMetadataTool GetToolInfo()
         {
-            var assembly = typeof(Program).Assembly;
+            var assembly = Assembly.GetEntryAssembly() ?? typeof(DumpMetadata).Assembly;
             var version = assembly.GetName().Version?.ToString() ?? "0.0.0.0";
             var commit = string.Empty;
             var infoVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;

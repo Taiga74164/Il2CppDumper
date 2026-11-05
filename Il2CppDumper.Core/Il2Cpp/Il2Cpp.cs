@@ -70,7 +70,7 @@ namespace Il2CppDumper
                         else
                         {
                             Version = 29;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                     }
                     if (Version == 29)
@@ -79,7 +79,7 @@ namespace Il2CppDumper
                         {
                             Version = 29.1;
                             codeRegistration -= PointerSize * 2;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                     }
                     if (Version == 27)
@@ -88,7 +88,7 @@ namespace Il2CppDumper
                         {
                             Version = 27.1;
                             codeRegistration -= PointerSize;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                     }
                     if (Version == 24.4)
@@ -98,7 +98,7 @@ namespace Il2CppDumper
                         {
                             Version = 24.5;
                             codeRegistration -= PointerSize;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                     }
                     if (Version == 24.2)
@@ -107,13 +107,13 @@ namespace Il2CppDumper
                         {
                             Version = 24.3;
                             codeRegistration -= PointerSize * 2;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                     }
                 }
             }
-            Console.WriteLine("CodeRegistration : {0:x}", codeRegistration);
-            Console.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
+            CoreLogger.WriteLine("CodeRegistration : {0:x}", codeRegistration);
+            CoreLogger.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
             if (codeRegistration != 0 && metadataRegistration != 0)
             {
                 Init(codeRegistration, metadataRegistration);
@@ -129,7 +129,7 @@ namespace Il2CppDumper
             if (Version == 27 && pCodeRegistration.invokerPointersCount > limit)
             {
                 Version = 27.1;
-                Console.WriteLine($"Change il2cpp version to: {Version}");
+                CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                 pCodeRegistration = MapVATR<Il2CppCodeRegistration>(codeRegistration);
             }
             if (Version == 27.1)
@@ -144,7 +144,7 @@ namespace Il2CppDumper
                         if (rgctxs.All(x => x.data.rgctxDataDummy > limit))
                         {
                             Version = 27.2;
-                            Console.WriteLine($"Change il2cpp version to: {Version}");
+                            CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                         }
                         break;
                     }
@@ -153,13 +153,13 @@ namespace Il2CppDumper
             if (Version == 24.4 && pCodeRegistration.invokerPointersCount > limit)
             {
                 Version = 24.5;
-                Console.WriteLine($"Change il2cpp version to: {Version}");
+                CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                 pCodeRegistration = MapVATR<Il2CppCodeRegistration>(codeRegistration);
             }
             if (Version == 24.2 && pCodeRegistration.codeGenModules == 0) //TODO
             {
                 Version = 24.3;
-                Console.WriteLine($"Change il2cpp version to: {Version}");
+                CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                 pCodeRegistration = MapVATR<Il2CppCodeRegistration>(codeRegistration);
             }
             pMetadataRegistration = MapVATR<Il2CppMetadataRegistration>(metadataRegistration);
@@ -179,7 +179,7 @@ namespace Il2CppDumper
                         {
                             metadata.Version = Version;
                         }
-                        Console.WriteLine($"Change il2cpp version to: {Version}");
+                        CoreLogger.WriteLine($"Change il2cpp version to: {Version}");
                     }
                     else
                     {

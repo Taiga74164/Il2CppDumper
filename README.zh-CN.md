@@ -51,6 +51,38 @@ Unity il2cpp逆向工程
 Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 ```
 
+### 类库调用（Library usage）
+
+`Il2CppDumper.Core` 提供了无控制台依赖（headless）、进程内直接调用的类型化 API，无需启动外部子进程或刮取终端文本：
+
+```csharp
+using Il2CppDumper.Core;
+
+var request = new DumpRequest
+{
+    ExecutablePath = "GameAssembly.dll",
+    MetadataPath = "global-metadata.dat",
+    OutputDirectory = "output",           // 可选；null 将使用临时目录
+    Config = new Config(),                // 可选；null 将使用默认的完整配置
+    Log = Console.Out                     // 可选；null 为静默运行
+};
+
+DumpResult result = Dumper.Dump(request);
+if (result.Success)
+{
+    foreach (var (artifact, path) in result.Outputs)
+    {
+        Console.WriteLine($"{artifact} -> {path}");
+    }
+}
+else
+{
+    Console.WriteLine($"Dump failed: {result.Error}");
+}
+```
+
+> **关于 `RequireAnyKey` 的说明：** 在进程内直接调用 `Il2CppDumper.Core` 时，`Config.RequireAnyKey` 配置项**完全不生效**。类库在无人值守或自动化调用路径中绝不会因等待按键而产生阻塞。
+
 ### 输出文件
 
 #### DummyDll
