@@ -40,6 +40,7 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`GenerateStruct`", content);
             Assert.Contains("`script.json`", content);
             Assert.Contains("`stringliteral.json`", content);
+            Assert.Contains("`stringliteral-indexed.json`", content);
             Assert.Contains("`il2cpp.h`", content);
         }
 
@@ -54,6 +55,7 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`GenerateStruct`", content);
             Assert.Contains("`script.json`", content);
             Assert.Contains("`stringliteral.json`", content);
+            Assert.Contains("`stringliteral-indexed.json`", content);
             Assert.Contains("`il2cpp.h`", content);
         }
 
@@ -336,6 +338,34 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`generatedAtUtc`", content);
             Assert.Contains("**Português:**", content);
             Assert.Contains("proveniência", content);
+        }
+
+        [Fact]
+        public void Readme_English_DocumentsStringLiteralForensicUsage()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### stringliteral-indexed.json", content);
+            Assert.Contains("**Forensic usage:**", content);
+            Assert.Contains("`GetStringLiteralFromIndex(n)`", content);
+            Assert.Contains("`dataIndex` and `length`", content);
+            Assert.Contains("**Uso forense:**", content);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsStringLiteralForensicUsage()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### stringliteral-indexed.json", content);
+            Assert.Contains("**取证用途（Forensic usage）：**", content);
+            Assert.Contains("`GetStringLiteralFromIndex(n)`", content);
+            Assert.Contains("`dataIndex` 与 `length`", content);
+            Assert.Contains("**Uso forense:**", content);
         }
     }
 }

@@ -375,6 +375,9 @@ namespace Il2CppDumper
             }).ToArray();
             var jsonOptions = new JsonSerializerOptions() { WriteIndented = true, IncludeFields = true };
             File.WriteAllText(outputDir + "stringliteral.json", JsonSerializer.Serialize(stringLiterals, jsonOptions), new UTF8Encoding(false));
+            //输出按索引排序的完整StringLiteral取证表
+            var indexedStringLiterals = metadata.DumpStringLiterals();
+            File.WriteAllText(outputDir + "stringliteral-indexed.json", JsonSerializer.Serialize(indexedStringLiterals, jsonOptions), new UTF8Encoding(false));
             //写入文件
             File.WriteAllText(outputDir + "script.json", JsonSerializer.Serialize(json, jsonOptions));
             //il2cpp.h
@@ -495,6 +498,11 @@ namespace Il2CppDumper
             json.ScriptMetadata.Add(scriptMetadata);
             scriptMetadata.Address = il2Cpp.GetRVA(address);
             scriptMetadata.Name = "Field$" + fieldName;
+        }
+
+        public List<StringLiteralRecord> DumpStringLiterals()
+        {
+            return metadata.DumpStringLiterals();
         }
 
         private void AddMetadataUsageStringLiteral(ScriptJson json, uint index, ulong address)
