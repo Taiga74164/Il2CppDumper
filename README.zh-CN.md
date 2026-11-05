@@ -79,6 +79,12 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 包含所有stringLiteral信息
 
+#### dump-metadata.json
+
+每次运行开始时（无论成功或失败）生成的溯源信息文件（provenance sidecar），记录 `tool`（`name`、`version`、`commit`）、`inputs`（`il2cpp` 和 `metadata` 的解析路径 `path`、字节长度 `length` 与流式计算的 `sha256`）、实际检测到的 `metadataVersion`、生效的 `config` 配置以及 `generatedAtUtc`（ISO-8601）。
+
+**Português:** Arquivo lateral de proveniência (`dump-metadata.json`) gravado no início de cada execução (sucesso ou falha), registrando `tool` (`name`, `version`, `commit`), `inputs` (`il2cpp` e `metadata` com `path` resolvido, `length` e `sha256` em streaming), `metadataVersion` resolvida, `config` efetiva e `generatedAtUtc` (ISO-8601).
+
 ### 关于config.json
 
 * `DumpMethod`，`DumpField`，`DumpProperty`，`DumpAttribute`，`DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`

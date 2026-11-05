@@ -121,7 +121,8 @@ namespace Il2CppDumper
             {
                 try
                 {
-                    if (Init(il2cppPath, metadataPath, out var metadata, out var il2Cpp))
+                    var dumpMetadata = DumpMetadataWriter.WriteInitial(outputDir, il2cppPath, metadataPath, config);
+                    if (Init(il2cppPath, metadataPath, out var metadata, out var il2Cpp, outputDir, dumpMetadata))
                     {
                         if (!Dump(metadata, il2Cpp, outputDir))
                         {
@@ -160,12 +161,16 @@ namespace Il2CppDumper
             Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
         }
 
-        private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp)
+        private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp, string outputDir = null, DumpMetadata dumpMetadata = null)
         {
             Console.WriteLine("Initializing metadata...");
             var metadataBytes = File.ReadAllBytes(metadataPath);
             metadata = new Metadata(new MemoryStream(metadataBytes));
             Console.WriteLine($"Metadata Version: {metadata.Version}");
+            if (outputDir != null && dumpMetadata != null)
+            {
+                DumpMetadataWriter.UpdateMetadataVersion(outputDir, dumpMetadata, metadata.Version);
+            }
 
             Console.WriteLine("Initializing il2cpp file...");
             var il2cppBytes = File.ReadAllBytes(il2cppPath);
