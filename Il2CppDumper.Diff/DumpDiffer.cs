@@ -88,7 +88,7 @@ namespace Il2CppDumper.Diff
                 var leftType = leftTypes[typeName];
                 var rightType = rightTypes[typeName];
 
-                // Compare fields
+                // Compare fields (offset is passthrough only; only type change triggers changedField)
                 var leftFields = (leftType.fields ?? new List<JsonDumpField>())
                     .GroupBy(f => f.name)
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -105,7 +105,7 @@ namespace Il2CppDumper.Diff
                 {
                     var lf = leftFields[fName];
                     var rf = rightFields[fName];
-                    if (lf.type != rf.type || lf.offset != rf.offset)
+                    if (lf.type != rf.type)
                     {
                         changedFields.Add(new DumpDiffFieldChange
                         {
@@ -124,8 +124,8 @@ namespace Il2CppDumper.Diff
                     .GroupBy(m => m.name)
                     .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-                var addedMethods = rightMethods.Keys.Except(leftMethods.Keys).OrderBy(x => x, StringComparer.Ordinal).ToList();
-                var removedMethods = leftMethods.Keys.Except(rightMethods.Keys).OrderBy(x => x, StringComparer.Ordinal).ToList();
+                var addedMethods = rightMethods.Keys.Except(leftMethods.Keys).ToList();
+                var removedMethods = leftMethods.Keys.Except(rightMethods.Keys).ToList();
                 var commonMethods = leftMethods.Keys.Intersect(rightMethods.Keys).OrderBy(x => x, StringComparer.Ordinal);
 
                 var changedMethods = new List<DumpDiffMethodChange>();
@@ -151,20 +151,41 @@ namespace Il2CppDumper.Diff
                     }
                     else
                     {
-                        var lSigs = lList.ToDictionary(FormatSignature, m => m);
-                        var rSigs = rList.ToDictionary(FormatSignature, m => m);
-                        foreach (var sig in rSigs.Keys.Except(lSigs.Keys))
+                        // Overloads: compare by formatted signature counts, never throw on duplicate signatures
+                        var lSigList = lList.Select(FormatSignature).ToList();
+                        var rSigList = rList.Select(FormatSignature).ToList();
+
+                        var lSigCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                        foreach (var s in lSigList)
+                            lSigCounts[s] = lSigCounts.GetValueOrDefault(s, 0) + 1;
+
+                        var rSigCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                        foreach (var s in rSigList)
+                            rSigCounts[s] = rSigCounts.GetValueOrDefault(s, 0) + 1;
+
+                        foreach (var (sig, rCount) in rSigCounts)
                         {
-                            if (!addedMethods.Contains(sig))
+                            var lCount = lSigCounts.GetValueOrDefault(sig, 0);
+                            for (var c = 0; c < rCount - lCount; c++)
+                            {
                                 addedMethods.Add(sig);
+                            }
                         }
-                        foreach (var sig in lSigs.Keys.Except(rSigs.Keys))
+
+                        foreach (var (sig, lCount) in lSigCounts)
                         {
-                            if (!removedMethods.Contains(sig))
+                            var rCount = rSigCounts.GetValueOrDefault(sig, 0);
+                            for (var c = 0; c < lCount - rCount; c++)
+                            {
                                 removedMethods.Add(sig);
+                            }
                         }
                     }
                 }
+
+                addedMethods.Sort(StringComparer.Ordinal);
+                removedMethods.Sort(StringComparer.Ordinal);
+                changedMethods = changedMethods.OrderBy(x => x.method, StringComparer.Ordinal).ToList();
 
                 if (addedFields.Count > 0 || removedFields.Count > 0 || changedFields.Count > 0 ||
                     addedMethods.Count > 0 || removedMethods.Count > 0 || changedMethods.Count > 0)
@@ -189,35 +210,78 @@ namespace Il2CppDumper.Diff
             }
 
             // 2. Compare Method Addresses
-            if (leftArtifacts.ScriptMethodAddresses != null && rightArtifacts.ScriptMethodAddresses != null)
+            if (leftArtifacts.ScriptMethods != null && rightArtifacts.ScriptMethods != null)
             {
                 var addressChanges = new List<DumpDiffAddressChange>();
-                foreach (var typeName in commonTypeNames)
+
+                var leftGrouped = leftArtifacts.ScriptMethods
+                    .GroupBy(m => (m.TypeName, m.MethodName))
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                var rightGrouped = rightArtifacts.ScriptMethods
+                    .GroupBy(m => (m.TypeName, m.MethodName))
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                var commonKeys = leftGrouped.Keys.Intersect(rightGrouped.Keys)
+                    .OrderBy(k => k.TypeName, StringComparer.Ordinal)
+                    .ThenBy(k => k.MethodName, StringComparer.Ordinal);
+
+                foreach (var key in commonKeys)
                 {
-                    var leftType = leftTypes[typeName];
-                    var rightType = rightTypes[typeName];
-                    var commonMethods = leftType.methods
-                        .Select(m => m.name)
-                        .Intersect(rightType.methods.Select(m => m.name))
-                        .Distinct(StringComparer.Ordinal);
+                    var leftEntries = leftGrouped[key];
+                    var rightEntries = rightGrouped[key];
 
-                    foreach (var methodName in commonMethods)
+                    if (leftEntries.Count == 1 && rightEntries.Count == 1)
                     {
-                        var leftKey = (typeName, methodName);
-                        var rightKey = (typeName, methodName);
-
-                        if (leftArtifacts.ScriptMethodAddresses.TryGetValue(leftKey, out var leftAddr) &&
-                            rightArtifacts.ScriptMethodAddresses.TryGetValue(rightKey, out var rightAddr))
+                        var lm = leftEntries[0];
+                        var rm = rightEntries[0];
+                        if (lm.Address != rm.Address)
                         {
-                            if (leftAddr != rightAddr)
+                            addressChanges.Add(new DumpDiffAddressChange
                             {
-                                addressChanges.Add(new DumpDiffAddressChange
+                                type = key.TypeName,
+                                method = key.MethodName,
+                                left = $"0x{lm.Address:X}",
+                                right = $"0x{rm.Address:X}"
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Overloads: match identifiable overloads by Signature without guessing
+                        var matchedRight = new HashSet<ScriptMethodEntry>();
+
+                        foreach (var lm in leftEntries)
+                        {
+                            if (!string.IsNullOrEmpty(lm.Signature))
+                            {
+                                var candidates = rightEntries
+                                    .Where(rm => !matchedRight.Contains(rm) && rm.Signature == lm.Signature)
+                                    .ToList();
+
+                                if (candidates.Count == 1)
                                 {
-                                    type = typeName,
-                                    method = methodName,
-                                    left = $"0x{leftAddr:X}",
-                                    right = $"0x{rightAddr:X}"
-                                });
+                                    var rm = candidates[0];
+                                    matchedRight.Add(rm);
+                                    if (lm.Address != rm.Address)
+                                    {
+                                        addressChanges.Add(new DumpDiffAddressChange
+                                        {
+                                            type = key.TypeName,
+                                            method = lm.Signature,
+                                            left = $"0x{lm.Address:X}",
+                                            right = $"0x{rm.Address:X}"
+                                        });
+                                    }
+                                }
+                                else if (candidates.Count > 1)
+                                {
+                                    var sameAddr = candidates.FirstOrDefault(c => c.Address == lm.Address);
+                                    if (sameAddr != null)
+                                    {
+                                        matchedRight.Add(sameAddr);
+                                    }
+                                }
                             }
                         }
                     }
@@ -232,11 +296,11 @@ namespace Il2CppDumper.Diff
             else
             {
                 result.methods.addressChanged = null;
-                if (leftArtifacts.ScriptMethodAddresses == null && rightArtifacts.ScriptMethodAddresses == null)
+                if (leftArtifacts.ScriptMethods == null && rightArtifacts.ScriptMethods == null)
                 {
                     result.methods.note = "Address comparison omitted: script.json missing on both left and right";
                 }
-                else if (leftArtifacts.ScriptMethodAddresses == null)
+                else if (leftArtifacts.ScriptMethods == null)
                 {
                     result.methods.note = "Address comparison omitted: script.json missing on left";
                 }
@@ -319,11 +383,19 @@ namespace Il2CppDumper.Diff
             return Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
         }
 
+        public class ScriptMethodEntry
+        {
+            public string TypeName { get; set; } = string.Empty;
+            public string MethodName { get; set; } = string.Empty;
+            public string Signature { get; set; } = string.Empty;
+            public ulong Address { get; set; }
+        }
+
         private class ParsedArtifacts
         {
             public DumpDiffEndpoint Endpoint { get; set; } = new();
             public Dictionary<string, JsonDumpType> Types { get; set; } = new(StringComparer.Ordinal);
-            public Dictionary<(string type, string method), ulong>? ScriptMethodAddresses { get; set; }
+            public List<ScriptMethodEntry>? ScriptMethods { get; set; }
             public Dictionary<uint, string>? Literals { get; set; }
         }
 
@@ -388,13 +460,29 @@ namespace Il2CppDumper.Diff
                 artifacts.Endpoint.sha256 = ComputeStreamSha256(dumpJsonPath);
             }
 
-            // 2. Parse dump.json
+            // 2. Parse dump.json (required input, must have 'types' array)
             using (var stream = File.OpenRead(dumpJsonPath))
             {
-                var model = JsonSerializer.Deserialize<JsonDumpModel>(stream);
-                if (model == null)
+                using var doc = JsonDocument.Parse(stream);
+                if (!doc.RootElement.TryGetProperty("types", out var typesEl) ||
+                    typesEl.ValueKind != JsonValueKind.Array)
                 {
-                    throw new InvalidDataException($"Failed to deserialize {label} dump.json.");
+                    throw new InvalidDataException($"Invalid {label} dump.json: missing 'types' array property.");
+                }
+
+                JsonDumpModel? model;
+                try
+                {
+                    model = JsonSerializer.Deserialize<JsonDumpModel>(doc.RootElement.GetRawText());
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidDataException($"Failed to deserialize {label} dump.json: {ex.Message}", ex);
+                }
+
+                if (model == null || model.types == null)
+                {
+                    throw new InvalidDataException($"Invalid {label} dump.json: missing 'types' array property.");
                 }
 
                 void CollectType(JsonDumpType t)
@@ -412,16 +500,13 @@ namespace Il2CppDumper.Diff
                     }
                 }
 
-                if (model.types != null)
+                foreach (var t in model.types)
                 {
-                    foreach (var t in model.types)
-                    {
-                        CollectType(t);
-                    }
+                    CollectType(t);
                 }
             }
 
-            // 3. Parse script.json (optional)
+            // 3. Parse script.json (optional, but if present must be valid)
             var scriptPath = Path.Combine(dir, "script.json");
             if (File.Exists(scriptPath))
             {
@@ -429,53 +514,67 @@ namespace Il2CppDumper.Diff
                 {
                     using var stream = File.OpenRead(scriptPath);
                     using var doc = JsonDocument.Parse(stream);
-                    if (doc.RootElement.TryGetProperty("ScriptMethod", out var scriptMethods) &&
-                        scriptMethods.ValueKind == JsonValueKind.Array)
+                    if (!doc.RootElement.TryGetProperty("ScriptMethod", out var scriptMethods) ||
+                        scriptMethods.ValueKind != JsonValueKind.Array)
                     {
-                        var map = new Dictionary<(string type, string method), ulong>();
-                        foreach (var item in scriptMethods.EnumerateArray())
-                        {
-                            if (item.TryGetProperty("Name", out var nameEl) &&
-                                item.TryGetProperty("Address", out var addrEl))
-                            {
-                                var name = nameEl.GetString() ?? "";
-                                ulong addr = 0;
-                                if (addrEl.ValueKind == JsonValueKind.Number)
-                                {
-                                    addr = addrEl.GetUInt64();
-                                }
-                                else if (addrEl.ValueKind == JsonValueKind.String)
-                                {
-                                    var str = addrEl.GetString();
-                                    if (!string.IsNullOrEmpty(str) && str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                                        ulong.TryParse(str.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out addr);
-                                    else
-                                        ulong.TryParse(str, out addr);
-                                }
-
-                                var sep = name.IndexOf("$$");
-                                if (sep >= 0)
-                                {
-                                    var typeName = name.Substring(0, sep);
-                                    var methodName = name.Substring(sep + 2);
-                                    map[(typeName, methodName)] = addr;
-                                }
-                                else
-                                {
-                                    map[("", name)] = addr;
-                                }
-                            }
-                        }
-                        artifacts.ScriptMethodAddresses = map;
+                        throw new InvalidDataException($"Failed to parse {label} script.json: missing 'ScriptMethod' array.");
                     }
+
+                    var list = new List<ScriptMethodEntry>();
+                    foreach (var item in scriptMethods.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("Name", out var nameEl) &&
+                            item.TryGetProperty("Address", out var addrEl))
+                        {
+                            var name = nameEl.GetString() ?? "";
+                            ulong addr = 0;
+                            if (addrEl.ValueKind == JsonValueKind.Number)
+                            {
+                                addr = addrEl.GetUInt64();
+                            }
+                            else if (addrEl.ValueKind == JsonValueKind.String)
+                            {
+                                var str = addrEl.GetString();
+                                if (!string.IsNullOrEmpty(str) && str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                                    ulong.TryParse(str.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out addr);
+                                else
+                                    ulong.TryParse(str, out addr);
+                            }
+
+                            var sig = item.TryGetProperty("Signature", out var sigEl) ? (sigEl.GetString() ?? "") : "";
+
+                            var sep = name.IndexOf("$$");
+                            string typeName;
+                            string methodName;
+                            if (sep >= 0)
+                            {
+                                typeName = name.Substring(0, sep);
+                                methodName = name.Substring(sep + 2);
+                            }
+                            else
+                            {
+                                typeName = "";
+                                methodName = name;
+                            }
+
+                            list.Add(new ScriptMethodEntry
+                            {
+                                TypeName = typeName,
+                                MethodName = methodName,
+                                Signature = sig,
+                                Address = addr
+                            });
+                        }
+                    }
+                    artifacts.ScriptMethods = list;
                 }
-                catch
+                catch (Exception ex) when (!(ex is InvalidDataException))
                 {
-                    artifacts.ScriptMethodAddresses = null;
+                    throw new InvalidDataException($"Failed to parse {label} script.json: {ex.Message}", ex);
                 }
             }
 
-            // 4. Parse literals (optional)
+            // 4. Parse literals (optional, only stringliteral-indexed.json; if present must be valid)
             var indexedLiteralsPath = Path.Combine(dir, "stringliteral-indexed.json");
             if (File.Exists(indexedLiteralsPath))
             {
@@ -483,53 +582,26 @@ namespace Il2CppDumper.Diff
                 {
                     using var stream = File.OpenRead(indexedLiteralsPath);
                     using var doc = JsonDocument.Parse(stream);
-                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array)
                     {
-                        var map = new Dictionary<uint, string>();
-                        foreach (var item in doc.RootElement.EnumerateArray())
+                        throw new InvalidDataException($"Failed to parse {label} stringliteral-indexed.json: root must be an array.");
+                    }
+
+                    var map = new Dictionary<uint, string>();
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                    {
+                        if (!item.TryGetProperty("index", out var idxEl) || idxEl.ValueKind != JsonValueKind.Number)
                         {
-                            if (item.TryGetProperty("index", out var idxEl) &&
-                                item.TryGetProperty("value", out var valEl))
-                            {
-                                map[idxEl.GetUInt32()] = valEl.GetString() ?? "";
-                            }
+                            throw new InvalidDataException($"Failed to parse {label} stringliteral-indexed.json: entry missing valid numeric 'index'.");
                         }
-                        artifacts.Literals = map;
+                        var val = item.TryGetProperty("value", out var valEl) ? (valEl.GetString() ?? "") : "";
+                        map[idxEl.GetUInt32()] = val;
                     }
+                    artifacts.Literals = map;
                 }
-                catch
+                catch (Exception ex) when (!(ex is InvalidDataException))
                 {
-                    artifacts.Literals = null;
-                }
-            }
-            else
-            {
-                var literalsPath = Path.Combine(dir, "stringliteral.json");
-                if (File.Exists(literalsPath))
-                {
-                    try
-                    {
-                        using var stream = File.OpenRead(literalsPath);
-                        using var doc = JsonDocument.Parse(stream);
-                        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                        {
-                            var map = new Dictionary<uint, string>();
-                            uint idx = 0;
-                            foreach (var item in doc.RootElement.EnumerateArray())
-                            {
-                                if (item.TryGetProperty("value", out var valEl))
-                                {
-                                    map[idx] = valEl.GetString() ?? "";
-                                }
-                                idx++;
-                            }
-                            artifacts.Literals = map;
-                        }
-                    }
-                    catch
-                    {
-                        artifacts.Literals = null;
-                    }
+                    throw new InvalidDataException($"Failed to parse {label} stringliteral-indexed.json: {ex.Message}", ex);
                 }
             }
 

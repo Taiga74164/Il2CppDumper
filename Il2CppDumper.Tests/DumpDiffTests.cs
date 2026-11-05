@@ -672,5 +672,511 @@ namespace Il2CppDumper.Tests
                 }
             }
         }
+        [Fact]
+        public void Diff_OverloadMethodAddressChange_IsDetectedAndDoesNotDropEarlierOverload()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-overload-addr-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Player",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "MethodM", returnType = "int", parameters = new List<JsonDumpParameter> { new() { type = "int", name = "x" } } },
+                                new() { name = "MethodM", returnType = "int", parameters = new List<JsonDumpParameter> { new() { type = "string", name = "s" } } }
+                            }
+                        }
+                    }
+                };
+
+                var sigInt = "int Game.Player$$MethodM (Game.Player* __this, int x, const MethodInfo* method);";
+                var sigStr = "int Game.Player$$MethodM (Game.Player* __this, string s, const MethodInfo* method);";
+
+                var leftScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Player$$MethodM", Signature = sigInt, Address = 0x1000 },
+                        new() { Name = "Game.Player$$MethodM", Signature = sigStr, Address = 0x2000 }
+                    }
+                };
+
+                var rightScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Player$$MethodM", Signature = sigInt, Address = 0x1800 },
+                        new() { Name = "Game.Player$$MethodM", Signature = sigStr, Address = 0x2000 }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, model, leftScript);
+                CreateDumpFixtures(rightDir, model, rightScript);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(1, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+
+                Assert.NotNull(diff.methods.addressChanged);
+                Assert.Single(diff.methods.addressChanged);
+                var change = diff.methods.addressChanged[0];
+                Assert.Equal("Game.Player", change.type);
+                Assert.Equal(sigInt, change.method);
+                Assert.Equal("0x1000", change.left);
+                Assert.Equal("0x1800", change.right);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_OverloadMethodReorderingInScriptJson_DoesNotProduceFalseChanges()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-overload-reorder-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Player",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "MethodM", returnType = "int", parameters = new List<JsonDumpParameter> { new() { type = "int", name = "x" } } },
+                                new() { name = "MethodM", returnType = "int", parameters = new List<JsonDumpParameter> { new() { type = "string", name = "s" } } }
+                            }
+                        }
+                    }
+                };
+
+                var sigInt = "int Game.Player$$MethodM (Game.Player* __this, int x, const MethodInfo* method);";
+                var sigStr = "int Game.Player$$MethodM (Game.Player* __this, string s, const MethodInfo* method);";
+
+                var leftScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Player$$MethodM", Signature = sigInt, Address = 0x1000 },
+                        new() { Name = "Game.Player$$MethodM", Signature = sigStr, Address = 0x2000 }
+                    }
+                };
+
+                // Opposite order on right: sigStr first (0x2000), then sigInt (0x1000)
+                var rightScript = new ScriptJson
+                {
+                    ScriptMethod = new List<ScriptMethod>
+                    {
+                        new() { Name = "Game.Player$$MethodM", Signature = sigStr, Address = 0x2000 },
+                        new() { Name = "Game.Player$$MethodM", Signature = sigInt, Address = 0x1000 }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, model, leftScript);
+                CreateDumpFixtures(rightDir, model, rightScript);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(0, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.Empty(diff.methods.addressChanged!);
+                Assert.False(diff.HasDifferences);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_OverloadNewSignatures_AreSortedOrdinallyInAddedMethods()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-overload-sort-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var leftModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Player",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter> { new() { type = "int", name = "x" } } }
+                            }
+                        }
+                    }
+                };
+
+                // Right has overloads zType and aType inserted in order zType then aType
+                var rightModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Player",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter> { new() { type = "int", name = "x" } } },
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter> { new() { type = "zType", name = "z" } } },
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter> { new() { type = "aType", name = "a" } } }
+                            }
+                        }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, leftModel);
+                CreateDumpFixtures(rightDir, rightModel);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(1, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                var playerChange = diff.types.changed.First(t => t.type == "Game.Player");
+
+                Assert.Equal(2, playerChange.methods.added.Count);
+                // Must be ordinally sorted: aType before zType
+                Assert.Equal("void M(aType)", playerChange.methods.added[0]);
+                Assert.Equal("void M(zType)", playerChange.methods.added[1]);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_DuplicateIdenticalSignatures_DoesNotThrowArgumentException()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-dup-sig-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var dir = Path.Combine(tempDir, "target");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var model = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Dup",
+                            methods = new List<JsonDumpMethod>
+                            {
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter>() },
+                                new() { name = "M", returnType = "void", parameters = new List<JsonDumpParameter>() }
+                            }
+                        }
+                    }
+                };
+
+                CreateDumpFixtures(dir, model);
+
+                // Comparing dir with itself must succeed with exit 0 and not throw ArgumentException
+                var exitCode = DumpDiffer.Execute(dir, dir, outPath);
+
+                Assert.Equal(0, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.False(diff.HasDifferences);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_LegacyStringLiteralJson_DoesNotFabricateIndexNorCauseFalseDiffOnReorder()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-legacy-lit-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // Write legacy stringliteral.json (call site references) with reversed order on right
+                var leftLegJson = "[{\"value\":\"Alpha\",\"address\":4096},{\"value\":\"Beta\",\"address\":8192}]";
+                var rightLegJson = "[{\"value\":\"Beta\",\"address\":8192},{\"value\":\"Alpha\",\"address\":4096}]";
+                File.WriteAllText(Path.Combine(leftDir, "stringliteral.json"), leftLegJson, Encoding.UTF8);
+                File.WriteAllText(Path.Combine(rightDir, "stringliteral.json"), rightLegJson, Encoding.UTF8);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                // Because stringliteral-indexed.json is missing, legacy stringliteral.json must NOT be used to fabricate indices
+                Assert.Equal(0, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.Empty(diff.literals.valueChangedByIndex);
+                Assert.Empty(diff.literals.addedByIndex);
+                Assert.NotNull(diff.literals.note);
+                Assert.Contains("stringliteral-indexed.json missing on both left and right", diff.literals.note);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_CorruptedScriptJson_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-corrupt-script-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // Corrupted truncated script.json on left
+                File.WriteAllText(Path.Combine(leftDir, "script.json"), "{\"ScriptMethod\": [{\"Name\": \"trun", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("script.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_CorruptedStringLiteralIndexedJson_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-corrupt-lit-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                var model = new JsonDumpModel { types = new List<JsonDumpType>() };
+                CreateDumpFixtures(leftDir, model);
+                CreateDumpFixtures(rightDir, model);
+
+                // Textual index in stringliteral-indexed.json on left
+                File.WriteAllText(Path.Combine(leftDir, "stringliteral-indexed.json"), "[{\"index\": \"not_a_number\", \"value\": \"test\"}]", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("stringliteral-indexed.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void DiffCli_DumpJsonWithoutTypes_ReturnsExit2WithDiagnostic()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-no-types-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "diff.json");
+
+                Directory.CreateDirectory(leftDir);
+                Directory.CreateDirectory(rightDir);
+                File.WriteAllText(Path.Combine(leftDir, "dump.json"), "{}", Encoding.UTF8);
+                File.WriteAllText(Path.Combine(rightDir, "dump.json"), "{\"types\":[]}", Encoding.UTF8);
+
+                var (exitCode, stdout, _) = RunDiffCli(leftDir, rightDir, outPath);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("ERROR:", stdout);
+                Assert.Contains("dump.json", stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_FieldOffsetDriftOnly_DoesNotTriggerFieldChangeNorExit1()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-offset-only-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var leftModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Entity",
+                            fields = new List<JsonDumpField> { new() { name = "count", type = "int", offset = "0x10" } }
+                        }
+                    }
+                };
+
+                // Same type int, but offset drifted 0x10 -> 0x18
+                var rightModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Entity",
+                            fields = new List<JsonDumpField> { new() { name = "count", type = "int", offset = "0x18" } }
+                        }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, leftModel);
+                CreateDumpFixtures(rightDir, rightModel);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                // B5: Offset drift alone is passthrough only; must exit 0 and not trigger types.changed
+                Assert.Equal(0, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.Empty(diff.types.changed);
+                Assert.False(diff.HasDifferences);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Diff_FieldTypeChange_RetainsOffsetsAsPassthroughDetails()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "dump-diff-type-change-offset-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var leftDir = Path.Combine(tempDir, "left");
+                var rightDir = Path.Combine(tempDir, "right");
+                var outPath = Path.Combine(tempDir, "dump-diff.json");
+
+                var leftModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Entity",
+                            fields = new List<JsonDumpField> { new() { name = "count", type = "int", offset = "0x10" } }
+                        }
+                    }
+                };
+
+                // Type changed int -> long with different offsets
+                var rightModel = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Game.Entity",
+                            fields = new List<JsonDumpField> { new() { name = "count", type = "long", offset = "0x20" } }
+                        }
+                    }
+                };
+
+                CreateDumpFixtures(leftDir, leftModel);
+                CreateDumpFixtures(rightDir, rightModel);
+
+                var exitCode = DumpDiffer.Execute(leftDir, rightDir, outPath);
+
+                Assert.Equal(1, exitCode);
+                var diff = JsonSerializer.Deserialize<DumpDiffResult>(File.ReadAllText(outPath))!;
+                Assert.Single(diff.types.changed);
+                var entityChange = diff.types.changed[0];
+                Assert.Single(entityChange.fields.changed);
+                var fc = entityChange.fields.changed[0];
+                Assert.Equal("count", fc.field);
+                Assert.Equal("int", fc.left.type);
+                Assert.Equal("0x10", fc.left.offset);
+                Assert.Equal("long", fc.right.type);
+                Assert.Equal("0x20", fc.right.offset);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
     }
 }

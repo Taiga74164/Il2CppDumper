@@ -389,6 +389,28 @@ namespace Il2CppDumper.Tests
             Assert.Contains("\"valueChangedByIndex\"", content);
             Assert.Contains("\"summary\"", content);
             Assert.Contains("**Português:**", content);
+
+            // B4: Schema confrontation test - ensure the documented schema deserializes cleanly into DumpDiffResult
+            var jsonStart = content.IndexOf("```json", StringComparison.Ordinal);
+            Assert.True(jsonStart >= 0);
+            var codeStart = content.IndexOf('{', jsonStart);
+            var codeEnd = content.IndexOf("```", codeStart, StringComparison.Ordinal);
+            var jsonSnippet = content.Substring(codeStart, codeEnd - codeStart).Trim();
+
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<Il2CppDumper.Diff.DumpDiffResult>(jsonSnippet);
+            Assert.NotNull(parsed);
+            Assert.Equal("f1", parsed.types.changed[0].fields.added[0]);
+            Assert.Equal("f2", parsed.types.changed[0].fields.removed[0]);
+            Assert.Equal("f3", parsed.types.changed[0].fields.changed[0].field);
+            Assert.Equal("int", parsed.types.changed[0].fields.changed[0].left.type);
+            Assert.Equal("0x10", parsed.types.changed[0].fields.changed[0].left.offset);
+            Assert.Equal("m1", parsed.types.changed[0].methods.added[0]);
+            Assert.Equal("m2", parsed.types.changed[0].methods.removed[0]);
+            Assert.Equal("m3", parsed.types.changed[0].methods.changed[0].method);
+            Assert.Equal("void", parsed.types.changed[0].methods.changed[0].left.returnType);
+            Assert.NotNull(parsed.methods.addressChanged);
+            Assert.Equal("Namespace.TypeName", parsed.methods.addressChanged[0].type);
+            Assert.Equal("MethodName", parsed.methods.addressChanged[0].method);
         }
 
         [Fact]
@@ -413,6 +435,24 @@ namespace Il2CppDumper.Tests
             Assert.Contains("\"valueChangedByIndex\"", content);
             Assert.Contains("\"summary\"", content);
             Assert.Contains("**Português:**", content);
+
+            // B4: Schema confrontation test - ensure Chinese README schema matches emitted model
+            var jsonStart = content.IndexOf("```json", StringComparison.Ordinal);
+            Assert.True(jsonStart >= 0);
+            var codeStart = content.IndexOf('{', jsonStart);
+            var codeEnd = content.IndexOf("```", codeStart, StringComparison.Ordinal);
+            var jsonSnippet = content.Substring(codeStart, codeEnd - codeStart).Trim();
+
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<Il2CppDumper.Diff.DumpDiffResult>(jsonSnippet);
+            Assert.NotNull(parsed);
+            Assert.Equal("f1", parsed.types.changed[0].fields.added[0]);
+            Assert.Equal("f2", parsed.types.changed[0].fields.removed[0]);
+            Assert.Equal("f3", parsed.types.changed[0].fields.changed[0].field);
+            Assert.Equal("m1", parsed.types.changed[0].methods.added[0]);
+            Assert.Equal("m2", parsed.types.changed[0].methods.removed[0]);
+            Assert.Equal("m3", parsed.types.changed[0].methods.changed[0].method);
+            Assert.NotNull(parsed.methods.addressChanged);
+            Assert.Equal("Namespace.TypeName", parsed.methods.addressChanged[0].type);
         }
     }
 }

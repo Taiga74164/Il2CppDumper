@@ -147,14 +147,26 @@ Il2CppDumper.Diff <left> <right> <output>
       {
         "type": "Namespace.TypeName",
         "fields": {
-          "added": [ { "name": "f1", "type": "int", "offset": "0x10" } ],
-          "removed": [ { "name": "f2", "type": "string", "offset": "0x18" } ],
-          "changed": [ { "name": "f3", "left": { "name": "f3", "type": "int", "offset": "0x10" }, "right": { "name": "f3", "type": "long", "offset": "0x10" } } ]
+          "added": [ "f1" ],
+          "removed": [ "f2" ],
+          "changed": [
+            {
+              "field": "f3",
+              "left": { "type": "int", "offset": "0x10" },
+              "right": { "type": "long", "offset": "0x10" }
+            }
+          ]
         },
         "methods": {
-          "added": [ { "name": "m1", "returnType": "void", "parameters": [] } ],
-          "removed": [ { "name": "m2", "returnType": "void", "parameters": [] } ],
-          "changed": [ { "name": "m3", "left": { "name": "m3", "returnType": "void", "parameters": [] }, "right": { "name": "m3", "returnType": "int", "parameters": [] } } ]
+          "added": [ "m1" ],
+          "removed": [ "m2" ],
+          "changed": [
+            {
+              "method": "m3",
+              "left": { "returnType": "void", "parameters": "" },
+              "right": { "returnType": "int", "parameters": "" }
+            }
+          ]
         }
       }
     ]
