@@ -89,9 +89,9 @@ Provenance sidecar written at the start of every run (success or failure), recor
 
 #### dump.json
 
-Machine-readable dump output (`GenerateJsonDump`) capturing the same structured information as `dump.cs` in JSON format (`types`, `fields`, `properties`, `methods`, `enums`, `nested`).
+Machine-readable dump output (`GenerateJsonDump`) capturing the same structured information as `dump.cs` in JSON format (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Types, fields, properties, and methods preserve declared `attributes` (including `[Serializable]` on decorated types).
 
-**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`).
+**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
 
 ### Configuration
 

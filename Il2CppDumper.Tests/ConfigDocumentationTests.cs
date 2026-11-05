@@ -298,6 +298,8 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`methods`", content);
             Assert.Contains("`enums`", content);
             Assert.Contains("`nested`", content);
+            Assert.Contains("`attributes`", content);
+            Assert.Contains("[Serializable]", content);
             Assert.Contains("**Português:**", content);
         }
 
@@ -316,6 +318,8 @@ namespace Il2CppDumper.Tests
             Assert.Contains("`methods`", content);
             Assert.Contains("`enums`", content);
             Assert.Contains("`nested`", content);
+            Assert.Contains("`attributes`", content);
+            Assert.Contains("[Serializable]", content);
             Assert.Contains("**Português:**", content);
         }
 

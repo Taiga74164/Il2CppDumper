@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xunit;
+using Xunit.Sdk;
 using static Il2CppDumper.Il2CppConstants;
 
 namespace Il2CppDumper.Tests
@@ -88,11 +89,18 @@ namespace Il2CppDumper.Tests
             var readyName = AddString(m, "Ready", ref strPos);
             var stoppedName = AddString(m, "Stopped", ref strPos);
 
-            // 5. Null parameter default: DefaultParamHolder with Execute(object target, string label = null)
+            // 5. Null parameter default & Parameter modifiers: DefaultParamHolder
             var defaultHolderName = AddString(m, "DefaultParamHolder", ref strPos);
             var executeName = AddString(m, "Execute", ref strPos);
             var targetParamName = AddString(m, "target", ref strPos);
             var labelParamName = AddString(m, "label", ref strPos);
+
+            var modifyParamsName = AddString(m, "ModifyParams", ref strPos);
+            var refValName = AddString(m, "refVal", ref strPos);
+            var outValName = AddString(m, "outVal", ref strPos);
+            var inValName = AddString(m, "inVal", ref strPos);
+            var inAttrValName = AddString(m, "inAttrVal", ref strPos);
+            var outAttrValName = AddString(m, "outAttrVal", ref strPos);
 
             m.imageDefs = new[]
             {
@@ -119,7 +127,7 @@ namespace Il2CppDumper.Tests
                     method_count = 1,
                     flags = TYPE_ATTRIBUTE_PUBLIC
                 },
-                // Type 1: Outer
+                // Type 1: Outer (decorated with Serializable)
                 new Il2CppTypeDefinition
                 {
                     nameIndex = outerName,
@@ -129,7 +137,7 @@ namespace Il2CppDumper.Tests
                     genericContainerIndex = -1,
                     nestedTypesStart = 0,
                     nested_type_count = 1,
-                    flags = TYPE_ATTRIBUTE_PUBLIC
+                    flags = TYPE_ATTRIBUTE_PUBLIC | TYPE_ATTRIBUTE_SERIALIZABLE
                 },
                 // Type 2: Inner (nested in Outer)
                 new Il2CppTypeDefinition
@@ -181,7 +189,7 @@ namespace Il2CppDumper.Tests
                     parentIndex = -1,
                     genericContainerIndex = -1,
                     methodStart = 3,
-                    method_count = 1,
+                    method_count = 2,
                     flags = TYPE_ATTRIBUTE_PUBLIC
                 }
             };
@@ -261,6 +269,18 @@ namespace Il2CppDumper.Tests
                     methodIndex = -1,
                     flags = METHOD_ATTRIBUTE_PUBLIC,
                     slot = ushort.MaxValue
+                },
+                // Method 4: DefaultParamHolder.ModifyParams(ref int refVal, out string outVal, in int inVal, [In] int inAttrVal, [Out] int outAttrVal)
+                new Il2CppMethodDefinition
+                {
+                    nameIndex = modifyParamsName,
+                    returnType = 0,
+                    parameterStart = 6,
+                    parameterCount = 5,
+                    genericContainerIndex = -1,
+                    methodIndex = -1,
+                    flags = METHOD_ATTRIBUTE_PUBLIC,
+                    slot = ushort.MaxValue
                 }
             };
 
@@ -274,7 +294,13 @@ namespace Il2CppDumper.Tests
                 new Il2CppParameterDefinition { nameIndex = valName, typeIndex = 2 },
                 // Execute params
                 new Il2CppParameterDefinition { nameIndex = targetParamName, typeIndex = 3 },
-                new Il2CppParameterDefinition { nameIndex = labelParamName, typeIndex = 3 }
+                new Il2CppParameterDefinition { nameIndex = labelParamName, typeIndex = 3 },
+                // ModifyParams params (ref, out, in, [In], [Out])
+                new Il2CppParameterDefinition { nameIndex = refValName, typeIndex = 9 },
+                new Il2CppParameterDefinition { nameIndex = outValName, typeIndex = 10 },
+                new Il2CppParameterDefinition { nameIndex = inValName, typeIndex = 11 },
+                new Il2CppParameterDefinition { nameIndex = inAttrValName, typeIndex = 12 },
+                new Il2CppParameterDefinition { nameIndex = outAttrValName, typeIndex = 13 }
             };
 
             m.propertyDefs = new[]
@@ -311,7 +337,12 @@ namespace Il2CppDumper.Tests
                 new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_MVAR, data = new Il2CppType.Union { dummy = 1 } },    // 5: U
                 new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_CLASS, data = new Il2CppType.Union { dummy = 1 } },   // 6: Outer
                 new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, data = new Il2CppType.Union { dummy = 4 } }, // 7: Mode
-                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, data = new Il2CppType.Union { dummy = 4 }, attrs = FIELD_ATTRIBUTE_PUBLIC | FIELD_ATTRIBUTE_STATIC | FIELD_ATTRIBUTE_LITERAL } // 8: Mode literal
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE, data = new Il2CppType.Union { dummy = 4 }, attrs = FIELD_ATTRIBUTE_PUBLIC | FIELD_ATTRIBUTE_STATIC | FIELD_ATTRIBUTE_LITERAL }, // 8: Mode literal
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4, byref = 1 },                                                      // 9: ref int
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_STRING, byref = 1, attrs = PARAM_ATTRIBUTE_OUT },                    // 10: out string
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4, byref = 1, attrs = PARAM_ATTRIBUTE_IN },                         // 11: in int
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4, byref = 0, attrs = PARAM_ATTRIBUTE_IN },                         // 12: [In] int
+                new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_I4, byref = 0, attrs = PARAM_ATTRIBUTE_OUT }                         // 13: [Out] int
             };
 
             // Set field attributes:
@@ -335,6 +366,165 @@ namespace Il2CppDumper.Tests
                     {
                         yield return child;
                     }
+                }
+            }
+        }
+
+        private static void AssertParity(string[] csLines, JsonDumpModel model, bool checkAttributes = false)
+        {
+            var allTypes = FlattenTypes(model.types).ToDictionary(t => t.fullName, t => t);
+
+            string currentNamespace = "";
+            JsonDumpType? currentType = null;
+            var inType = false;
+
+            for (var lineIndex = 0; lineIndex < csLines.Length; lineIndex++)
+            {
+                var line = csLines[lineIndex].Trim();
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("/*") || line.StartsWith("*"))
+                    continue;
+
+                if (line.StartsWith("// Namespace:"))
+                {
+                    currentNamespace = line.Substring("// Namespace:".Length).Trim();
+                    continue;
+                }
+
+                if (line.StartsWith("//"))
+                    continue;
+
+                // Check for type definition start
+                var typeDeclMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+|abstract\s+|sealed\s+)*(?:class|struct|enum|interface)\s+([^\s:{]+)");
+                if (typeDeclMatch.Success)
+                {
+                    var typeName = typeDeclMatch.Groups[1].Value;
+                    var fullName = string.IsNullOrEmpty(currentNamespace) ? typeName : $"{currentNamespace}.{typeName}";
+                    Assert.True(allTypes.ContainsKey(fullName), $"Type '{fullName}' from dump.cs must exist in dump.json");
+                    currentType = allTypes[fullName];
+                    inType = true;
+
+                    if (checkAttributes)
+                    {
+                        var prevIdx = lineIndex - 1;
+                        while (prevIdx >= 0 && csLines[prevIdx].Trim().StartsWith("["))
+                        {
+                            var attrText = csLines[prevIdx].Trim();
+                            Assert.True(currentType.attributes.Contains(attrText), $"Type '{fullName}' must contain attribute '{attrText}' in dump.json");
+                            prevIdx--;
+                        }
+                    }
+                    continue;
+                }
+
+                if (line == "{")
+                    continue;
+
+                if (line == "}")
+                {
+                    currentType = null;
+                    inType = false;
+                    continue;
+                }
+
+                if (!inType || currentType == null)
+                    continue;
+
+                // Inside type block:
+                // 1. Enum constant
+                var constMatch = Regex.Match(line, @"^public\s+const\s+(\S+)\s+(\w+)\s*=\s*(.+);$");
+                if (constMatch.Success)
+                {
+                    var enumTypeName = constMatch.Groups[1].Value;
+                    var constName = constMatch.Groups[2].Value;
+                    var constVal = constMatch.Groups[3].Value.Trim();
+
+                    var jsonEnum = currentType.enums.FirstOrDefault();
+                    Assert.True(jsonEnum != null, $"Enum constant '{constName}' declared in '{currentType.fullName}', but no enum found in dump.json type.");
+                    Assert.True(currentType.fullName.EndsWith(enumTypeName) || jsonEnum.name == enumTypeName,
+                        $"Enum name mismatch in dump.json for '{currentType.fullName}'. Expected '{enumTypeName}', got '{jsonEnum.name}'");
+                    Assert.True(jsonEnum.constants.ContainsKey(constName),
+                        $"Enum constant '{constName}' not found in JsonDumpEnum for '{currentType.fullName}'");
+                    Assert.Equal(constVal, jsonEnum.constants[constName].ToString());
+                    continue;
+                }
+
+                // 2. Property
+                var propMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(\S+)\s+(\w+)\s*\{\s*(?:get;\s*)?(?:set;\s*)?\}$");
+                if (propMatch.Success)
+                {
+                    var propType = propMatch.Groups[1].Value;
+                    var propName = propMatch.Groups[2].Value;
+                    var foundProp = currentType.properties.FirstOrDefault(p => p.name == propName);
+                    Assert.True(foundProp != null, $"Property '{propName}' from dump.cs must be present in declaring JsonDumpType '{currentType.fullName}'");
+                    Assert.Equal(propType, foundProp.type);
+
+                    if (line.Contains("get;"))
+                        Assert.NotNull(foundProp.getter);
+                    else
+                        Assert.Null(foundProp.getter);
+
+                    if (line.Contains("set;"))
+                        Assert.NotNull(foundProp.setter);
+                    else
+                        Assert.Null(foundProp.setter);
+
+                    continue;
+                }
+
+                // 3. Method
+                var methodMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(?:abstract\s+|override\s+|virtual\s+)?(\S+)\s+([A-Za-z0-9_<>]+)\((.*)\)\s*(?:\{\s*\}|;)$");
+                if (methodMatch.Success)
+                {
+                    var retType = methodMatch.Groups[1].Value;
+                    var methName = methodMatch.Groups[2].Value;
+                    var rawParams = methodMatch.Groups[3].Value.Trim();
+
+                    var foundMethod = currentType.methods.FirstOrDefault(m => m.name == methName && m.returnType == retType);
+                    Assert.True(foundMethod != null, $"Method '{retType} {methName}' from dump.cs must be present in declaring JsonDumpType '{currentType.fullName}'");
+
+                    if (string.IsNullOrEmpty(rawParams))
+                    {
+                        Assert.Empty(foundMethod.parameters);
+                    }
+                    else
+                    {
+                        var expectedParams = rawParams.Split(new[] { ", " }, StringSplitOptions.None);
+                        Assert.Equal(expectedParams.Length, foundMethod.parameters.Count);
+                        for (var p = 0; p < expectedParams.Length; p++)
+                        {
+                            var expectedParamStr = expectedParams[p].Trim();
+                            string? expectedDefault = null;
+                            if (expectedParamStr.Contains('='))
+                            {
+                                var parts = expectedParamStr.Split('=');
+                                expectedParamStr = parts[0].Trim();
+                                expectedDefault = parts[1].Trim();
+                            }
+                            var lastSpace = expectedParamStr.LastIndexOf(' ');
+                            var expectedParamType = expectedParamStr.Substring(0, lastSpace).Trim();
+                            var expectedParamName = expectedParamStr.Substring(lastSpace + 1).Trim();
+
+                            var actualParam = foundMethod.parameters[p];
+                            Assert.Equal(expectedParamName, actualParam.name);
+                            Assert.Equal(expectedParamType, actualParam.type);
+                            if (expectedDefault != null)
+                            {
+                                Assert.Equal(expectedDefault, actualParam.defaultValue);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // 4. Field
+                var fieldMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(\S+)\s+(\w+)\s*(?:=\s*[^;]+)?\s*;");
+                if (fieldMatch.Success)
+                {
+                    var fldType = fieldMatch.Groups[1].Value;
+                    var fldName = fieldMatch.Groups[2].Value;
+                    var foundField = currentType.fields.FirstOrDefault(f => f.name == fldName);
+                    Assert.True(foundField != null, $"Field '{fldName}' from dump.cs must be present in declaring JsonDumpType '{currentType.fullName}'");
+                    Assert.Equal(fldType, foundField.type);
                 }
             }
         }
@@ -418,7 +608,7 @@ namespace Il2CppDumper.Tests
                     Assert.Equal(7L, Convert.ToInt64(modeEnum.GetConstantValue("Ready")));
                     Assert.Equal(0L, Convert.ToInt64(modeEnum.GetConstantValue("Stopped")));
 
-                    // 5. Null parameter default from PR#18
+                    // 5. Null parameter default from PR#18 and Parameter modifiers (ref, out, in, [In], [Out])
                     var defaultHolder = allTypes.FirstOrDefault(t => t.fullName == "Repro.DefaultParamHolder");
                     Assert.NotNull(defaultHolder);
                     var execMethod = defaultHolder.methods.FirstOrDefault(m => m.name == "Execute");
@@ -427,6 +617,15 @@ namespace Il2CppDumper.Tests
                     var labelParam = execMethod.parameters[1];
                     Assert.Equal("label", labelParam.name);
                     Assert.Equal("null", labelParam.defaultValue);
+
+                    var modMethod = defaultHolder.methods.FirstOrDefault(m => m.name == "ModifyParams");
+                    Assert.NotNull(modMethod);
+                    Assert.Equal(5, modMethod.parameters.Count);
+                    Assert.Equal("ref int", modMethod.parameters[0].type);
+                    Assert.Equal("out string", modMethod.parameters[1].type);
+                    Assert.Equal("in int", modMethod.parameters[2].type);
+                    Assert.Equal("[In] int", modMethod.parameters[3].type);
+                    Assert.Equal("[Out] int", modMethod.parameters[4].type);
                 }
                 finally
                 {
@@ -452,7 +651,7 @@ namespace Il2CppDumper.Tests
                     DumpProperty = true,
                     DumpField = true,
                     DumpMethod = true,
-                    DumpAttribute = false
+                    DumpAttribute = true
                 };
 
                 var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-parity-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
@@ -466,66 +665,511 @@ namespace Il2CppDumper.Tests
                     var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
                     var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
                     var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
-                    var allTypes = FlattenTypes(model.types).ToList();
 
-                    // Parse members from dump.cs text:
-                    // 1. Fields: "\t<access> [modifiers] <type> <name>;" or with " = ...;"
-                    // 2. Properties: "\t<access> [modifiers] <type> <name> { ... }"
-                    // 3. Methods: "\t<access> [modifiers] <type> <name>(...) { }"
-                    // 4. Enum constants: "\tpublic const <enum> <name> = <val>;"
-
-                    var allJsonFields = allTypes.SelectMany(t => t.fields).ToList();
-                    var allJsonProperties = allTypes.SelectMany(t => t.properties).ToList();
-                    var allJsonMethods = allTypes.SelectMany(t => t.methods).ToList();
-                    var allJsonEnumConstants = allTypes.SelectMany(t => t.enums).SelectMany(e => e.constants.Keys).ToHashSet();
-
-                    foreach (var rawLine in csLines)
+                    // Strictly validate each member in its declaring type and verify enum constants
+                    AssertParity(csLines, model, checkAttributes: true);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
                     {
-                        var line = rawLine.Trim();
-                        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//") || line.StartsWith("/*") || line.StartsWith("{") || line.StartsWith("}"))
-                            continue;
-
-                        // Enum constant
-                        var constMatch = Regex.Match(line, @"^public\s+const\s+\S+\s+(\w+)\s*=\s*(.+);$");
-                        if (constMatch.Success)
-                        {
-                            var constName = constMatch.Groups[1].Value;
-                            Assert.True(allJsonEnumConstants.Contains(constName), $"Enum constant '{constName}' from dump.cs must be present in dump.json constants");
-                            continue;
-                        }
-
-                        // Property: e.g. "public string Item { set; }"
-                        var propMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(\S+)\s+(\w+)\s*\{\s*(?:get;\s*)?(?:set;\s*)?\}$");
-                        if (propMatch.Success)
-                        {
-                            var propType = propMatch.Groups[1].Value;
-                            var propName = propMatch.Groups[2].Value;
-                            var foundProp = allJsonProperties.FirstOrDefault(p => p.name == propName && p.type == propType);
-                            Assert.True(foundProp != null, $"Property '{propType} {propName}' from dump.cs must be present in dump.json properties (name + type equality)");
-                            continue;
-                        }
-
-                        // Method: e.g. "public void Process<U>(...) { }" or "public void Execute(...) { }"
-                        var methodMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(?:abstract\s+|override\s+|virtual\s+)?(\S+)\s+([A-Za-z0-9_<>]+)\(.*\)\s*(?:\{\s*\}|;)$");
-                        if (methodMatch.Success)
-                        {
-                            var retType = methodMatch.Groups[1].Value;
-                            var methName = methodMatch.Groups[2].Value;
-                            var foundMethod = allJsonMethods.FirstOrDefault(m => m.name == methName && m.returnType == retType);
-                            Assert.True(foundMethod != null, $"Method '{retType} {methName}' from dump.cs must be present in dump.json methods (name + type equality)");
-                            continue;
-                        }
-
-                        // Field: e.g. "public int innerField;" or "public int value__;"
-                        var fieldMatch = Regex.Match(line, @"^(?:public|protected|private|internal)\s+(?:static\s+)?(?:readonly\s+)?(\S+)\s+(\w+)\s*(?:=\s*[^;]+)?\s*;");
-                        if (fieldMatch.Success)
-                        {
-                            var fldType = fieldMatch.Groups[1].Value;
-                            var fldName = fieldMatch.Groups[2].Value;
-                            var foundField = allJsonFields.FirstOrDefault(f => f.name == fldName && f.type == fldType);
-                            Assert.True(foundField != null, $"Field '{fldType} {fldName}' from dump.cs must be present in dump.json fields (name + type equality)");
-                        }
+                        Directory.Delete(tempDir, true);
                     }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_MemberMovedToWrongClass()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-method-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var outer = allTypes.First(t => t.fullName == "Repro.Outer");
+                    var inner = allTypes.First(t => t.fullName == "Repro.Outer.Inner");
+
+                    // Move InnerMethod from Inner to Outer
+                    var innerMethod = inner.methods.First(m => m.name == "InnerMethod");
+                    inner.methods.Remove(innerMethod);
+                    outer.methods.Add(innerMethod);
+
+                    // Must throw because InnerMethod is expected in declaring type Repro.Outer.Inner
+                    var ex = Assert.Throws<TrueException>(() => AssertParity(csLines, model, checkAttributes: false));
+                    Assert.Contains("InnerMethod", ex.UserMessage);
+                    Assert.Contains("Repro.Outer.Inner", ex.UserMessage);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_FieldMovedToWrongClass()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-field-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var outer = allTypes.First(t => t.fullName == "Repro.Outer");
+                    var inner = allTypes.First(t => t.fullName == "Repro.Outer.Inner");
+
+                    // Move innerField from Inner to Outer
+                    var innerField = inner.fields.First(f => f.name == "innerField");
+                    inner.fields.Remove(innerField);
+                    outer.fields.Add(innerField);
+
+                    var ex = Assert.Throws<TrueException>(() => AssertParity(csLines, model, checkAttributes: false));
+                    Assert.Contains("innerField", ex.UserMessage);
+                    Assert.Contains("Repro.Outer.Inner", ex.UserMessage);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_EnumConstantValueTampered()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-enumval-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var mode = allTypes.First(t => t.fullName == "Repro.Mode");
+
+                    // Tamper Ready value from 7 to 999
+                    mode.enums[0].constants["Ready"] = 999;
+
+                    Assert.Throws<EqualException>(() => AssertParity(csLines, model, checkAttributes: false));
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_EnumConstantNameMismatch()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-enumname-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var mode = allTypes.First(t => t.fullName == "Repro.Mode");
+
+                    // Rename Ready to NotReady
+                    var val = mode.enums[0].constants["Ready"];
+                    mode.enums[0].constants.Remove("Ready");
+                    mode.enums[0].constants["NotReady"] = val;
+
+                    var ex = Assert.Throws<TrueException>(() => AssertParity(csLines, model, checkAttributes: false));
+                    Assert.Contains("Ready", ex.UserMessage);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_ParameterModifierMismatch()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-parammod-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var defaultHolder = allTypes.First(t => t.fullName == "Repro.DefaultParamHolder");
+                    var modMethod = defaultHolder.methods.First(m => m.name == "ModifyParams");
+
+                    // Strip "ref " modifier from first parameter
+                    modMethod.parameters[0].type = "int";
+
+                    Assert.Throws<EqualException>(() => AssertParity(csLines, model, checkAttributes: false));
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void ParityValidator_Detects_MissingTypeAttribute()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-tamper-typeattr-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csLines = File.ReadAllLines(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    var outer = allTypes.First(t => t.fullName == "Repro.Outer");
+
+                    // Remove [Serializable] attribute from Outer
+                    outer.attributes.Clear();
+
+                    var ex = Assert.Throws<TrueException>(() => AssertParity(csLines, model, checkAttributes: true));
+                    Assert.Contains("Repro.Outer", ex.UserMessage);
+                    Assert.Contains("[Serializable]", ex.UserMessage);
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void Config_DumpAttributeFalse_ProducesEmptyAttributes_AndOmitsSerializable()
+        {
+            var (m, il) = CreateSyntheticEnvironment();
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpField = true,
+                    DumpMethod = true,
+                    DumpAttribute = false
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-attr-disabled-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csText = File.ReadAllText(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    Assert.DoesNotContain("[Serializable]", csText);
+
+                    var allTypes = FlattenTypes(model.types).ToList();
+                    foreach (var type in allTypes)
+                    {
+                        Assert.Empty(type.attributes);
+                        foreach (var fld in type.fields)
+                            Assert.Empty(fld.attributes);
+                        foreach (var prop in type.properties)
+                            Assert.Empty(prop.attributes);
+                        foreach (var meth in type.methods)
+                            Assert.Empty(meth.attributes);
+                    }
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void CustomAttributes_TypeAndPropertyAttributes_PopulatedInJsonDumpMatchingDumpCs()
+        {
+            // Verify custom attributes on Type and Property when DumpAttribute is true
+            var bytes = new byte[8192];
+            BitConverter.GetBytes(0xFAB11BAFu).CopyTo(bytes, 0);
+            BitConverter.GetBytes(24).CopyTo(bytes, 4); // version 24
+            var m = new Metadata(new MemoryStream(bytes))
+            {
+                Version = 24
+            };
+            m.header.stringOffset = 512;
+            m.header.stringSize = 1024;
+
+            uint strPos = 0;
+            uint WriteStr(string s)
+            {
+                var ret = strPos;
+                var b = Encoding.UTF8.GetBytes(s + "\0");
+                Buffer.BlockCopy(b, 0, bytes, (int)(m.header.stringOffset + strPos), b.Length);
+                strPos += (uint)b.Length;
+                return ret;
+            }
+
+            var typeDef = new Il2CppTypeDefinition
+            {
+                nameIndex = WriteStr("AttributedClass"),
+                namespaceIndex = WriteStr("TestNamespace"),
+                byvalTypeIndex = 0,
+                propertyStart = 0,
+                property_count = 1,
+                declaringTypeIndex = -1,
+                parentIndex = -1,
+                genericContainerIndex = -1,
+                customAttributeIndex = 0,
+                token = 0x02000001,
+                flags = TYPE_ATTRIBUTE_PUBLIC | TYPE_ATTRIBUTE_SERIALIZABLE
+            };
+
+            var attrTypeDef = new Il2CppTypeDefinition
+            {
+                nameIndex = WriteStr("CustomFlagAttribute"),
+                namespaceIndex = WriteStr("TestNamespace"),
+                byvalTypeIndex = 1,
+                declaringTypeIndex = -1,
+                parentIndex = -1,
+                genericContainerIndex = -1
+            };
+
+            var propDef = new Il2CppPropertyDefinition
+            {
+                nameIndex = WriteStr("AttributedProperty"),
+                customAttributeIndex = 1,
+                token = 0x17000001,
+                get = -1,
+                set = -1
+            };
+
+            m.typeDefs = new[] { typeDef, attrTypeDef };
+            m.propertyDefs = new[] { propDef };
+            m.fieldDefs = Array.Empty<Il2CppFieldDefinition>();
+            m.methodDefs = Array.Empty<Il2CppMethodDefinition>();
+            m.parameterDefs = Array.Empty<Il2CppParameterDefinition>();
+
+            var imageDef = new Il2CppImageDefinition
+            {
+                nameIndex = WriteStr("TestAssembly.dll"),
+                typeStart = 0,
+                typeCount = 2
+            };
+            m.imageDefs = new[] { imageDef };
+
+            m.attributeTypeRanges = new[]
+            {
+                new Il2CppCustomAttributeTypeRange { token = 0x02000001, start = 0, count = 1 },
+                new Il2CppCustomAttributeTypeRange { token = 0x17000001, start = 1, count = 1 }
+            };
+            m.attributeTypes = new[] { 1, 1 };
+
+            var dic = new Dictionary<Il2CppImageDefinition, Dictionary<uint, int>>
+            {
+                {
+                    imageDef,
+                    new Dictionary<uint, int>
+                    {
+                        { 0x02000001, 0 },
+                        { 0x17000001, 1 }
+                    }
+                }
+            };
+            typeof(Metadata).GetField("attributeTypeRangesDic", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(m, dic);
+
+            var il = new WebAssemblyMemory(new MemoryStream(new byte[256]), 0)
+            {
+                Version = 24,
+                methodPointers = Array.Empty<ulong>(),
+                types = new[]
+                {
+                    new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_CLASS, data = new Il2CppType.Union { dummy = 0 } },
+                    new Il2CppType { type = Il2CppTypeEnum.IL2CPP_TYPE_CLASS, data = new Il2CppType.Union { dummy = 1 } }
+                }
+            };
+
+            using (m)
+            using (il)
+            {
+                var executor = new Il2CppExecutor(m, il);
+                executor.customAttributeGenerators = new ulong[] { 0x1000, 0x2000 };
+
+                var config = new Config
+                {
+                    GenerateJsonDump = true,
+                    DumpProperty = true,
+                    DumpAttribute = true
+                };
+
+                var tempDir = Path.Combine(Path.GetTempPath(), "dumpjson-custattr-" + Guid.NewGuid()) + Path.DirectorySeparatorChar;
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    var decompiler = new Il2CppDecompiler(executor);
+                    decompiler.Decompile(config, tempDir);
+
+                    var csText = File.ReadAllText(Path.Combine(tempDir, "dump.cs"));
+                    var jsonText = File.ReadAllText(Path.Combine(tempDir, "dump.json"));
+                    var model = JsonSerializer.Deserialize<JsonDumpModel>(jsonText, JsonDumpGenerator.JsonOptions)!;
+
+                    var targetType = model.types.First(t => t.fullName == "TestNamespace.AttributedClass");
+
+                    // Type attributes: custom attribute + [Serializable]
+                    Assert.Contains(targetType.attributes, a => a.Contains("CustomFlagAttribute"));
+                    Assert.Contains("[Serializable]", targetType.attributes);
+                    Assert.Contains("CustomFlagAttribute", csText);
+                    Assert.Contains("[Serializable]", csText);
+
+                    // Property attributes: custom attribute
+                    var targetProp = targetType.properties.First(p => p.name == "AttributedProperty");
+                    Assert.Contains(targetProp.attributes, a => a.Contains("CustomFlagAttribute"));
                 }
                 finally
                 {

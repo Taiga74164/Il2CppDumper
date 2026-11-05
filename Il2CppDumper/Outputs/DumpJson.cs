@@ -18,6 +18,7 @@ namespace Il2CppDumper
     {
         public string fullName { get; set; } = string.Empty;
         public List<string> bases { get; set; } = new();
+        public List<string> attributes { get; set; } = new();
         public List<JsonDumpField> fields { get; set; } = new();
         public List<JsonDumpProperty> properties { get; set; } = new();
         public List<JsonDumpMethod> methods { get; set; } = new();
@@ -38,6 +39,7 @@ namespace Il2CppDumper
     {
         public string name { get; set; } = string.Empty;
         public string type { get; set; } = string.Empty;
+        public List<string> attributes { get; set; } = new();
         public string? getter { get; set; }
         public string? setter { get; set; }
     }
@@ -266,10 +268,22 @@ namespace Il2CppDumper
                 }
             }
 
+            var typeAttributes = new List<string>();
+            if (config.DumpAttribute)
+            {
+                var typeOwner = metadata.GetStringFromIndex(typeDef.nameIndex);
+                typeAttributes = decompiler.GetCustomAttributeStrings(imageDef, typeDef.customAttributeIndex, typeDef.token, typeOwner, false);
+                if ((typeDef.flags & TYPE_ATTRIBUTE_SERIALIZABLE) != 0)
+                {
+                    typeAttributes.Add("[Serializable]");
+                }
+            }
+
             var typeModel = new JsonDumpType
             {
                 fullName = fullName,
-                bases = extends
+                bases = extends,
+                attributes = typeAttributes
             };
 
             if (typeDef.IsEnum)
@@ -389,10 +403,18 @@ namespace Il2CppDumper
                         }
                     }
 
+                    var propAttributes = new List<string>();
+                    if (config.DumpAttribute)
+                    {
+                        var propOwner = $"{metadata.GetStringFromIndex(typeDef.nameIndex)}.{propName}";
+                        propAttributes = decompiler.GetCustomAttributeStrings(imageDef, propertyDef.customAttributeIndex, propertyDef.token, propOwner, false);
+                    }
+
                     typeModel.properties.Add(new JsonDumpProperty
                     {
                         name = propName,
                         type = propType,
+                        attributes = propAttributes,
                         getter = getter,
                         setter = setter
                     });
@@ -443,7 +465,35 @@ namespace Il2CppDumper
                             if (parameterDef.typeIndex >= 0 && parameterDef.typeIndex < il2Cpp.types.Length)
                             {
                                 var parameterType = il2Cpp.types[parameterDef.typeIndex];
-                                paramTypeName = executor.GetTypeName(parameterType, false, false);
+                                var typeName = executor.GetTypeName(parameterType, false, false);
+                                var prefix = "";
+                                if (parameterType.byref == 1)
+                                {
+                                    if ((parameterType.attrs & PARAM_ATTRIBUTE_OUT) != 0 && (parameterType.attrs & PARAM_ATTRIBUTE_IN) == 0)
+                                    {
+                                        prefix = "out ";
+                                    }
+                                    else if ((parameterType.attrs & PARAM_ATTRIBUTE_OUT) == 0 && (parameterType.attrs & PARAM_ATTRIBUTE_IN) != 0)
+                                    {
+                                        prefix = "in ";
+                                    }
+                                    else
+                                    {
+                                        prefix = "ref ";
+                                    }
+                                }
+                                else
+                                {
+                                    if ((parameterType.attrs & PARAM_ATTRIBUTE_IN) != 0)
+                                    {
+                                        prefix += "[In] ";
+                                    }
+                                    if ((parameterType.attrs & PARAM_ATTRIBUTE_OUT) != 0)
+                                    {
+                                        prefix += "[Out] ";
+                                    }
+                                }
+                                paramTypeName = prefix + typeName;
                             }
 
                             string? defaultValue = null;

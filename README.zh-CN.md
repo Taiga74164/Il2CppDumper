@@ -87,9 +87,9 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 #### dump.json
 
-机器可读的结构化转储输出（`GenerateJsonDump`），以 JSON 格式捕获与 `dump.cs` 相同的结构化信息（`types`、`fields`、`properties`、`methods`、`enums`、`nested`）。
+机器可读的结构化转储输出（`GenerateJsonDump`），以 JSON 格式捕获与 `dump.cs` 相同的结构化信息（`types`、`fields`、`properties`、`methods`、`enums`、`nested`）。类型、字段、属性与方法均保留声明的 `attributes`（包括标记类的 `[Serializable]`）。
 
-**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`).
+**Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
 
 ### 关于config.json
 
