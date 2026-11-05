@@ -427,7 +427,118 @@ namespace Il2CppDumper
                 log.LogWarning($"WARNING: Custom attribute decoding completed with {CustomAttributeFailedCount} failure(s) ({CustomAttributeWrittenCount} written, {CustomAttributeFailedCount} skipped).");
             }
             writer.Close();
+            if (config.GenerateJsonDump)
+            {
+                try
+                {
+                    JsonDumpGenerator.Write(outputDir, this, executor, config);
+                }
+                catch (Exception e)
+                {
+                    success = false;
+                    Console.WriteLine("ERROR: Some errors in generating json dump");
+                    Console.WriteLine(e);
+                }
+            }
             return success;
+        }
+
+        public List<string> GetCustomAttributeStrings(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string owner = null, bool countMetrics = false)
+        {
+            var result = new List<string>();
+            if (il2Cpp.Version < 21)
+                return result;
+            var attributeIndex = metadata.GetCustomAttributeIndex(imageDef, customAttributeIndex, token);
+            if (attributeIndex >= 0)
+            {
+                owner ??= ResolveOwnerFromToken(token);
+                if (il2Cpp.Version < 29)
+                {
+                    var methodPointer = executor.customAttributeGenerators[attributeIndex];
+                    var fixedMethodPointer = il2Cpp.GetRVA(methodPointer);
+                    var attributeTypeRange = metadata.attributeTypeRanges[attributeIndex];
+                    for (var i = 0; i < attributeTypeRange.count; i++)
+                    {
+                        var typeIndex = metadata.attributeTypes[attributeTypeRange.start + i];
+                        var attrStr = $"[{executor.GetTypeName(il2Cpp.types[typeIndex], false, false)}] // RVA: 0x{fixedMethodPointer:X} Offset: 0x{il2Cpp.MapVATR(methodPointer):X} VA: 0x{methodPointer:X}";
+                        result.Add(attrStr);
+                    }
+                    return result;
+                }
+                else
+                {
+                    try
+                    {
+                        var startRange = metadata.attributeDataRanges[attributeIndex];
+                        var endRange = metadata.attributeDataRanges[attributeIndex + 1];
+                        metadata.Position = (ulong)(metadata.Version >= 38
+                            ? metadata.header.attributeData.offset + startRange.startOffset
+                            : metadata.header.attributeDataOffset + startRange.startOffset);
+                        var buff = metadata.ReadBytes((int)(endRange.startOffset - startRange.startOffset));
+                        var reader = new CustomAttributeDataReader(executor, buff);
+                        if (reader.Count == 0)
+                        {
+                            return result;
+                        }
+                        var availableCount = (int)Math.Min((long)reader.Count, (long)reader.AvailableConstructors);
+                        var truncatedCount = Math.Max(0L, (long)reader.Count - availableCount);
+                        for (var i = 0; i < availableCount; i++)
+                        {
+                            var attributeTypeName = reader.GetAttributeTypeName(i);
+                            try
+                            {
+                                var attributeData = reader.GetStringCustomAttributeData();
+                                result.Add(attributeData);
+                                if (countMetrics && CustomAttributeWrittenCount < long.MaxValue)
+                                    CustomAttributeWrittenCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
+                                    CustomAttributeFailedCount++;
+                                if (countMetrics)
+                                {
+                                    log.LogWarning($"WARNING: Failed to decode custom attribute '{attributeTypeName}' on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                                }
+                                for (var j = i + 1; j < availableCount; j++)
+                                {
+                                    var remainingTypeName = reader.GetAttributeTypeName(j);
+                                    if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
+                                        CustomAttributeFailedCount++;
+                                    if (countMetrics)
+                                    {
+                                        log.LogWarning($"WARNING: Failed to decode custom attribute '{remainingTypeName}' on '{owner}' (token 0x{token:X8}): Skipped due to previous attribute decoding failure in the same blob");
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        if (truncatedCount > 0 && countMetrics)
+                        {
+                            if (long.MaxValue - CustomAttributeFailedCount < truncatedCount)
+                                CustomAttributeFailedCount = long.MaxValue;
+                            else
+                                CustomAttributeFailedCount += truncatedCount;
+
+                            log.LogWarning($"WARNING: Custom attribute blob declares {reader.Count} attribute(s) but buffer only contains {availableCount} constructor record(s) on '{owner}' (token 0x{token:X8}); {truncatedCount} missing attribute(s) skipped.");
+                        }
+
+                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (countMetrics && CustomAttributeFailedCount < long.MaxValue)
+                            CustomAttributeFailedCount++;
+                        if (countMetrics)
+                        {
+                            log.LogWarning($"WARNING: Failed to read custom attribute data on '{owner}' (token 0x{token:X8}): {ex.Message}");
+                        }
+                        return result;
+                    }
+                }
+            }
+            return result;
         }
 
         public string GetCustomAttribute(Il2CppImageDefinition imageDef, int customAttributeIndex, uint token, string padding = "", string owner = null)

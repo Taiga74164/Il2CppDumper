@@ -1,4 +1,4 @@
-﻿namespace Il2CppDumper
+namespace Il2CppDumper
 {
     public class Config
     {
@@ -11,6 +11,7 @@
         public bool DumpTypeDefIndex { get; set; } = true;
         public bool GenerateDummyDll { get; set; } = true;
         public bool GenerateStruct { get; set; } = true;
+        public bool GenerateJsonDump { get; set; } = false;
         public bool DummyDllAddToken { get; set; } = true;
         public bool RequireAnyKey { get; set; } = true;
         public bool ForceIl2CppVersion { get; set; } = false;
