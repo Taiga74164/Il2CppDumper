@@ -91,7 +91,12 @@ Il2CppDumper.exe <executable-file> <global-metadata> <output-directory>
 
 #### stringliteral.json
 
-包含所有stringLiteral信息
+包含由 `StructGenerator` 生成的所有 stringLiteral 结构化信息（`index`、`value`、`address`、`dataIndex`、`length`）。
+
+**取证用途（Forensic usage）：** 在逆向分析二进制文件或反编译 IL 中通过索引引用字符串字面量的调用点（例如 `GetStringLiteralFromIndex(n)`）时，可以通过匹配 `index = n` 直接定位解析。`dataIndex` 与 `length` 字段提供了在 metadata 字符串字面量数据区段内的精确相对字节偏移与长度，便于与 `global-metadata.dat` 原始字节进行比对验证。若需在混淆游戏版本或补丁更新之间比对字符串表，可通过 `index` 关联条目进行 diff（例如 `jq '.[] | {index, value}' stringliteral.json`）。
+
+**Português:** Contém todas as informações de literais de string emitidas pelo `StructGenerator` como JSON estruturado (`index`, `value`, `address`, `dataIndex`, `length`).
+**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral.json`).
 
 #### dump-metadata.json
 

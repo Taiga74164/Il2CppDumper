@@ -874,23 +874,27 @@ namespace Il2CppDumper
             }
         }
 
-        public string GetStringLiteralFromIndex(uint index)
+        public bool TryGetStringLiteral(uint index, out string value, out int dataIndex, out int length)
         {
+            value = string.Empty;
+            dataIndex = -1;
+            length = 0;
+
             if (stringLiterals == null || index >= stringLiterals.Length)
             {
-                return string.Empty;
+                return false;
             }
 
             var stringLiteral = stringLiterals[index];
+            dataIndex = stringLiteral.dataIndex;
             var dataOffset = Version >= 38 ? (uint)header.stringLiteralData.offset : header.stringLiteralDataOffset;
             var dataSize = Version >= 38 ? header.stringLiteralData.sectionSize : header.stringLiteralDataSize;
 
             if (dataSize <= 0 || stringLiteral.dataIndex < 0 || stringLiteral.dataIndex >= dataSize)
             {
-                return string.Empty;
+                return false;
             }
 
-            int length;
             if (Version <= 31)
             {
                 // v31 及之前：length 字段存在
@@ -915,7 +919,7 @@ namespace Il2CppDumper
                 var currentPos = (ulong)dataOffset + (ulong)stringLiteral.dataIndex;
                 if (currentPos >= Length)
                 {
-                    return string.Empty;
+                    return false;
                 }
                 Position = currentPos;
                 length = 0;
@@ -931,24 +935,67 @@ namespace Il2CppDumper
                 }
                 if (!terminated)
                 {
-                    return string.Empty;
+                    return false;
                 }
             }
 
             if (length < 0 || (long)stringLiteral.dataIndex + length > dataSize || (ulong)dataOffset + (ulong)stringLiteral.dataIndex + (ulong)length > Length)
             {
-                return string.Empty;
+                return false;
             }
 
             try
             {
                 Position = (ulong)dataOffset + (ulong)stringLiteral.dataIndex;
-                return Encoding.UTF8.GetString(ReadBytes(length));
+                value = Encoding.UTF8.GetString(ReadBytes(length));
+                return true;
             }
             catch (EndOfStreamException)
             {
-                return string.Empty;
+                value = string.Empty;
+                return false;
             }
+        }
+
+        public string GetStringLiteralFromIndex(uint index)
+        {
+            return TryGetStringLiteral(index, out var value, out _, out _) ? value : string.Empty;
+        }
+
+        public List<StringLiteralRecord> DumpStringLiterals(Dictionary<uint, ulong> addressMap = null, Func<ulong, ulong> getRva = null)
+        {
+            var result = new List<StringLiteralRecord>();
+            if (stringLiterals == null)
+            {
+                return result;
+            }
+
+            for (uint i = 0; i < stringLiterals.Length; i++)
+            {
+                var stringLiteral = stringLiterals[i];
+                var record = new StringLiteralRecord
+                {
+                    index = i,
+                    dataIndex = stringLiteral?.dataIndex ?? 0
+                };
+
+                if (TryGetStringLiteral(i, out var val, out var dIdx, out var len))
+                {
+                    record.value = val;
+                    record.dataIndex = dIdx;
+                    record.length = len;
+                }
+
+                if (addressMap != null && addressMap.TryGetValue(i, out var addr))
+                {
+                    var rva = getRva != null ? getRva(addr) : addr;
+                    record.address = $"0x{rva:X}";
+                }
+
+                result.Add(record);
+            }
+
+            return result;
         }
 
         private void ProcessingMetadataUsage()

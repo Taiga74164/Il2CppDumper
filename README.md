@@ -93,7 +93,12 @@ For ida.py, ghidra.py and Il2CppBinaryNinja
 
 #### stringliteral.json
 
-Contains all stringLiteral information
+Contains all stringLiteral information emitted by `StructGenerator` as structured JSON (`index`, `value`, `address`, `dataIndex`, `length`).
+
+**Forensic usage:** When analyzing binaries or decompiled IL call sites that reference string literals by index (e.g., `GetStringLiteralFromIndex(n)`), entries can be resolved directly by querying `index = n`. The `dataIndex` and `length` fields provide exact section-relative byte offsets and sizes within the metadata string literal data section for byte-level validation against `global-metadata.dat`. To diff string tables across obfuscated game builds or patch updates, correlate entries by `index` (e.g. `jq '.[] | {index, value}' stringliteral.json`).
+
+**Português:** Contém todas as informações de literais de string emitidas pelo `StructGenerator` como JSON estruturado (`index`, `value`, `address`, `dataIndex`, `length`).
+**Uso forense:** Ao analisar binários ou chamadas de IL descompiladas que referenciam literais de string por índice (ex.: `GetStringLiteralFromIndex(n)`), as entradas podem ser resolvidas diretamente buscando `index = n`. Os campos `dataIndex` e `length` fornecem deslocamentos e comprimentos exatos em bytes dentro da seção de dados de literais para correlação direta com o `global-metadata.dat`. Para comparar tabelas de strings entre versões ofuscadas ou atualizações do jogo, correlacione as entradas por `index` (ex.: `jq '.[] | {index, value}' stringliteral.json`).
 
 #### dump-metadata.json
 
