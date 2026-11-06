@@ -486,5 +486,87 @@ namespace Il2CppDumper.Tests
             Assert.NotNull(parsed.methods.addressChanged);
             Assert.Equal("Namespace.TypeName", parsed.methods.addressChanged[0].type);
         }
+
+        [Fact]
+        public void Readme_English_DocumentsFieldOffsetDriftSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### Field offset drift report (`field-offset-drift.json`)", content);
+            Assert.Contains("Il2CppDumper.Diff --drift <left> <right> <output>", content);
+            Assert.Contains("`0`: Identical (no field offset drift found).", content);
+            Assert.Contains("`1`: Drift found in one or more structs.", content);
+            Assert.Contains("`2`: Usage / input error.", content);
+            Assert.Contains("`breaks-external-readers`", content);
+            Assert.Contains("`leaf-consumers-may-survive`", content);
+
+            // Schema confrontation test
+            var sectionStart = content.IndexOf("##### Schema reference (`field-offset-drift.json`)", StringComparison.Ordinal);
+            Assert.True(sectionStart >= 0);
+            var jsonStart = content.IndexOf("```json", sectionStart, StringComparison.Ordinal);
+            Assert.True(jsonStart >= 0);
+            var codeStart = content.IndexOf('{', jsonStart);
+            var codeEnd = content.IndexOf("```", codeStart, StringComparison.Ordinal);
+            var jsonSnippet = content.Substring(codeStart, codeEnd - codeStart).Trim();
+
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<Il2CppDumper.Diff.FieldOffsetDriftReport>(jsonSnippet);
+            Assert.NotNull(parsed);
+            Assert.Equal(1, parsed.schemaVersion);
+            Assert.Single(parsed.structs);
+            Assert.Equal("Ns.Obf", parsed.structs[0].@struct);
+            Assert.Equal("0x120", parsed.structs[0].size.left);
+            Assert.Equal("0x128", parsed.structs[0].size.right);
+            Assert.Equal("hp", parsed.structs[0].fields[0].name);
+            Assert.Equal("0x28", parsed.structs[0].fields[0].left);
+            Assert.Equal("0x2C", parsed.structs[0].fields[0].right);
+            Assert.Equal("shifted", parsed.structs[0].fields[0].drift);
+            Assert.Equal("breaks-external-readers", parsed.structs[0].fields[0].severity);
+            Assert.Equal("mp", parsed.structs[0].fields[1].name);
+            Assert.Equal("0x2C", parsed.structs[0].fields[1].left);
+            Assert.Null(parsed.structs[0].fields[1].right);
+            Assert.Equal("removed", parsed.structs[0].fields[1].drift);
+            Assert.Equal(1, parsed.structs[0].verdict.shifted);
+            Assert.Equal(1, parsed.structs[0].verdict.removed);
+            Assert.Equal(0, parsed.structs[0].verdict.added);
+        }
+
+        [Fact]
+        public void Readme_Chinese_DocumentsFieldOffsetDriftSection()
+        {
+            var repoRoot = FindRepoRoot();
+            var readmePath = Path.Combine(repoRoot, "README.zh-CN.md");
+            var content = File.ReadAllText(readmePath);
+
+            Assert.Contains("#### 结构体字段偏移漂移报告 (Field offset drift report - `field-offset-drift.json`)", content);
+            Assert.Contains("Il2CppDumper.Diff --drift <left> <right> <output>", content);
+            Assert.Contains("`0`: 完全一致（未发现字段偏移漂移）。", content);
+            Assert.Contains("`1`: 在一个或多个结构体中发现漂移。", content);
+            Assert.Contains("`2`: 参数使用或输入错误。", content);
+            Assert.Contains("`breaks-external-readers`", content);
+            Assert.Contains("`leaf-consumers-may-survive`", content);
+
+            // Schema confrontation test
+            var sectionStart = content.IndexOf("##### 数据模式参考 (Schema reference - `field-offset-drift.json`)", StringComparison.Ordinal);
+            Assert.True(sectionStart >= 0);
+            var jsonStart = content.IndexOf("```json", sectionStart, StringComparison.Ordinal);
+            Assert.True(jsonStart >= 0);
+            var codeStart = content.IndexOf('{', jsonStart);
+            var codeEnd = content.IndexOf("```", codeStart, StringComparison.Ordinal);
+            var jsonSnippet = content.Substring(codeStart, codeEnd - codeStart).Trim();
+
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<Il2CppDumper.Diff.FieldOffsetDriftReport>(jsonSnippet);
+            Assert.NotNull(parsed);
+            Assert.Equal(1, parsed.schemaVersion);
+            Assert.Single(parsed.structs);
+            Assert.Equal("Ns.Obf", parsed.structs[0].@struct);
+            Assert.Equal("0x120", parsed.structs[0].size.left);
+            Assert.Equal("0x128", parsed.structs[0].size.right);
+            Assert.Equal("hp", parsed.structs[0].fields[0].name);
+            Assert.Equal("shifted", parsed.structs[0].fields[0].drift);
+            Assert.Equal("mp", parsed.structs[0].fields[1].name);
+            Assert.Equal("removed", parsed.structs[0].fields[1].drift);
+        }
     }
 }
