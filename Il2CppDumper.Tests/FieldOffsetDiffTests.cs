@@ -21,6 +21,11 @@ namespace Il2CppDumper.Tests
 
         private static (int exitCode, string stdout, string stderr) RunDiffCli(params string[] cliArgs)
         {
+            return RunDiffCliWithWorkingDir(null, cliArgs);
+        }
+
+        private static (int exitCode, string stdout, string stderr) RunDiffCliWithWorkingDir(string? workingDir, params string[] cliArgs)
+        {
             var dllPath = Path.Combine(GetBuildOutputDir(), "Il2CppDumper.Diff.dll");
             var psi = new ProcessStartInfo
             {
@@ -29,6 +34,10 @@ namespace Il2CppDumper.Tests
                 RedirectStandardError = true,
                 UseShellExecute = false
             };
+            if (!string.IsNullOrEmpty(workingDir))
+            {
+                psi.WorkingDirectory = workingDir;
+            }
             psi.ArgumentList.Add(dllPath);
             foreach (var arg in cliArgs)
             {
@@ -830,25 +839,27 @@ namespace Il2CppDumper.Tests
                 CreateDumpFixture(driftDir, emptyDump);
                 CreateDumpFixture(leftDir, emptyDump);
 
-                var outDir = Path.Combine(tempDir, "out");
-                Directory.CreateDirectory(outDir);
-
-                // 1. Normal mode with left named "drift": "drift left report-normal1.json" -> ExitCode 0
-                var norm1 = RunDiffCli(driftDir, leftDir, Path.Combine(outDir, "report-normal1.json"));
+                // 1. Normal mode with left named "drift": "drift left report.json" -> ExitCode 0
+                var reportPath = Path.Combine(tempDir, "report.json");
+                var norm1 = RunDiffCliWithWorkingDir(tempDir, "drift", "left", "report.json");
                 Assert.Equal(0, norm1.exitCode);
+                Assert.True(File.Exists(reportPath));
+                File.Delete(reportPath);
 
-                // 2. Normal mode with output named "drift": "left left drift" -> ExitCode 0
-                var driftOutPath = Path.Combine(tempDir, "drift-out-target");
-                var norm2 = RunDiffCli(leftDir, leftDir, driftOutPath);
+                // 2. Normal mode with destination named "drift": "left left drift" -> ExitCode 0
+                var norm2 = RunDiffCliWithWorkingDir(tempDir, "left", "left", "drift");
                 Assert.Equal(0, norm2.exitCode);
+                Assert.True(File.Exists(Path.Combine(driftDir, "dump-diff.json")));
 
-                // 3. Drift mode with left named "drift": "--drift drift left report-drift1.json" -> ExitCode 0
-                var drift1 = RunDiffCli("--drift", driftDir, leftDir, Path.Combine(outDir, "report-drift1.json"));
+                // 3. Drift mode with left named "drift": "--drift drift left report.json" -> ExitCode 0
+                var drift1 = RunDiffCliWithWorkingDir(tempDir, "--drift", "drift", "left", "report.json");
                 Assert.Equal(0, drift1.exitCode);
+                Assert.True(File.Exists(reportPath));
 
-                // 4. Drift mode with destination named "drift": "--drift left left drift-target" -> ExitCode 0
-                var drift2 = RunDiffCli("--drift", leftDir, leftDir, Path.Combine(tempDir, "drift-target"));
+                // 4. Drift mode with destination named "drift": "--drift left left drift" -> ExitCode 0
+                var drift2 = RunDiffCliWithWorkingDir(tempDir, "--drift", "left", "left", "drift");
                 Assert.Equal(0, drift2.exitCode);
+                Assert.True(File.Exists(Path.Combine(driftDir, "field-offset-drift.json")));
             }
             finally
             {
