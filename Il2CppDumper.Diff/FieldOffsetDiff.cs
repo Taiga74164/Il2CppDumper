@@ -92,18 +92,18 @@ namespace Il2CppDumper.Diff
                 leftTypes.TryGetValue(typeName, out var leftType);
                 rightTypes.TryGetValue(typeName, out var rightType);
 
-                // Collect instance (non-static) fields
+                // Collect instance fields that have an offset (exclude static and constants/literals without offset)
                 var leftInstanceFields = (leftType?.fields ?? new List<JsonDumpField>())
-                    .Where(f => !f.isStatic)
+                    .Where(f => !f.isStatic && TryParseHexOffset(f.offset, out _))
                     .GroupBy(f => f.name)
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
                 var rightInstanceFields = (rightType?.fields ?? new List<JsonDumpField>())
-                    .Where(f => !f.isStatic)
+                    .Where(f => !f.isStatic && TryParseHexOffset(f.offset, out _))
                     .GroupBy(f => f.name)
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
-                // Calculate max offset in left instance fields for appended-at-end classification
+                // Calculate max offset in left instance fields
                 ulong? maxLeftOffset = null;
                 foreach (var f in leftInstanceFields.Values)
                 {
@@ -121,7 +121,22 @@ namespace Il2CppDumper.Diff
                 // 1. Shifted & Unchanged (common fields)
                 var commonFieldNames = leftInstanceFields.Keys
                     .Intersect(rightInstanceFields.Keys)
-                    .OrderBy(x => x, StringComparer.Ordinal);
+                    .OrderBy(x => x, StringComparer.Ordinal)
+                    .ToList();
+
+                // Calculate max offset among pre-existing fields in updated (right) layout
+                ulong? maxPreexistingRightOffset = null;
+                foreach (var fName in commonFieldNames)
+                {
+                    var rf = rightInstanceFields[fName];
+                    if (TryParseHexOffset(rf.offset, out var off))
+                    {
+                        if (!maxPreexistingRightOffset.HasValue || off > maxPreexistingRightOffset.Value)
+                        {
+                            maxPreexistingRightOffset = off;
+                        }
+                    }
+                }
 
                 foreach (var fName in commonFieldNames)
                 {
@@ -187,22 +202,22 @@ namespace Il2CppDumper.Diff
                     var rf = rightInstanceFields[fName];
                     var rightHasOffset = TryParseHexOffset(rf.offset, out var rightOff);
 
-                    string severity;
-                    if (maxLeftOffset.HasValue && rightHasOffset)
+                    bool isAtEnd = false;
+                    if (rightHasOffset)
                     {
-                        severity = rightOff > maxLeftOffset.Value
-                            ? FieldOffsetSeverity.LeafConsumersMaySurvive
-                            : FieldOffsetSeverity.BreaksExternalReaders;
+                        if (leftInstanceFields.Count == 0)
+                        {
+                            isAtEnd = true;
+                        }
+                        else if (commonFieldNames.Count > 0 && maxLeftOffset.HasValue && maxPreexistingRightOffset.HasValue)
+                        {
+                            isAtEnd = rightOff > maxLeftOffset.Value && rightOff > maxPreexistingRightOffset.Value;
+                        }
                     }
-                    else if (!maxLeftOffset.HasValue)
-                    {
-                        // No previous fields existed in left
-                        severity = FieldOffsetSeverity.LeafConsumersMaySurvive;
-                    }
-                    else
-                    {
-                        severity = FieldOffsetSeverity.BreaksExternalReaders;
-                    }
+
+                    string severity = isAtEnd
+                        ? FieldOffsetSeverity.LeafConsumersMaySurvive
+                        : FieldOffsetSeverity.BreaksExternalReaders;
 
                     driftedFields.Add(new FieldOffsetFieldDrift
                     {

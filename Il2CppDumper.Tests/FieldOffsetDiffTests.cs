@@ -632,5 +632,228 @@ namespace Il2CppDumper.Tests
             Assert.False(report.HasDrift);
             Assert.Empty(report.structs);
         }
+
+        [Fact]
+        public void FieldOffsetDiff_RealGeneratorOutput_ExcludesConstantsFromLayoutDrift()
+        {
+            var (m, il) = JsonDumpTests.CreateSyntheticEnvironment();
+            var executor = new Il2CppExecutor(m, il);
+            var decompiler = new Il2CppDecompiler(executor);
+            var config = new Config
+            {
+                GenerateJsonDump = true,
+                DumpProperty = true,
+                DumpField = true,
+                DumpMethod = true,
+                DumpFieldOffset = true,
+                DumpAttribute = false
+            };
+
+            var baseModel = JsonDumpGenerator.Create(decompiler, executor, config);
+
+            // Verify that baseModel has enum Mode with instance field value__ (offset 0x0) and constant literals (offset null, isStatic false)
+            var modeType = baseModel.types.FirstOrDefault(t => t.fullName == "Repro.Mode");
+            Assert.NotNull(modeType);
+            var valueField = modeType.fields.FirstOrDefault(f => f.name == "value__");
+            Assert.NotNull(valueField);
+            Assert.NotNull(valueField.offset);
+            Assert.False(valueField.isStatic);
+
+            var readyConst = modeType.fields.FirstOrDefault(f => f.name == "Ready");
+            Assert.NotNull(readyConst);
+            Assert.Null(readyConst.offset);
+            Assert.False(readyConst.isStatic);
+
+            // 1. Alter ONLY constants: clone baseModel and remove Ready / add Paused constant with null offset
+            var cloneJson = JsonSerializer.Serialize(baseModel, JsonDumpGenerator.JsonOptions);
+            var modifiedModel = JsonSerializer.Deserialize<JsonDumpModel>(cloneJson, JsonDumpGenerator.JsonOptions)!;
+            var modModeType = modifiedModel.types.First(t => t.fullName == "Repro.Mode");
+            modModeType.fields.RemoveAll(f => f.name == "Ready");
+            modModeType.fields.Add(new JsonDumpField
+            {
+                name = "Paused",
+                type = "Repro.Mode",
+                offset = null,
+                isStatic = false
+            });
+
+            // Compare baseModel and modifiedModel
+            var reportNoDrift = FieldOffsetDiff.Compare(baseModel, modifiedModel);
+            Assert.False(reportNoDrift.HasDrift);
+            Assert.Empty(reportNoDrift.structs);
+
+            // 2. Now alter an instance field: value__ offset shifts
+            var shiftedModel = JsonSerializer.Deserialize<JsonDumpModel>(cloneJson, JsonDumpGenerator.JsonOptions)!;
+            var shiftedModeType = shiftedModel.types.First(t => t.fullName == "Repro.Mode");
+            shiftedModeType.fields.First(f => f.name == "value__").offset = "0x1000";
+
+            var reportShifted = FieldOffsetDiff.Compare(baseModel, shiftedModel);
+            Assert.True(reportShifted.HasDrift);
+            Assert.Single(reportShifted.structs);
+            Assert.Equal("Repro.Mode", reportShifted.structs[0].@struct);
+            Assert.Single(reportShifted.structs[0].fields);
+            Assert.Equal("value__", reportShifted.structs[0].fields[0].name);
+            Assert.Equal(valueField.offset, reportShifted.structs[0].fields[0].left);
+            Assert.Equal("0x1000", reportShifted.structs[0].fields[0].right);
+            Assert.Equal(FieldOffsetDriftType.Shifted, reportShifted.structs[0].fields[0].drift);
+            Assert.Equal(FieldOffsetSeverity.BreaksExternalReaders, reportShifted.structs[0].fields[0].severity);
+        }
+
+        [Fact]
+        public void FieldOffsetDiff_MiddleInsertVsAppendedAtEnd_StrictSeverityDistinction()
+        {
+            // Baseline: a at 0x10, b at 0x14
+            var leftModel = new JsonDumpModel
+            {
+                types = new List<JsonDumpType>
+                {
+                    new()
+                    {
+                        fullName = "Game.LayoutTest",
+                        size = "0x20",
+                        fields = new List<JsonDumpField>
+                        {
+                            new() { name = "a", type = "int", offset = "0x10" },
+                            new() { name = "b", type = "int", offset = "0x14" }
+                        }
+                    }
+                }
+            };
+
+            // Reviewer's exact example:
+            // a at 0x10, n1 at 0x14 (new), n2 at 0x18 (new), b at 0x1C (shifted)
+            var rightMiddleInsert = new JsonDumpModel
+            {
+                types = new List<JsonDumpType>
+                {
+                    new()
+                    {
+                        fullName = "Game.LayoutTest",
+                        size = "0x24",
+                        fields = new List<JsonDumpField>
+                        {
+                            new() { name = "a", type = "int", offset = "0x10" },
+                            new() { name = "n1", type = "int", offset = "0x14" },
+                            new() { name = "n2", type = "int", offset = "0x18" },
+                            new() { name = "b", type = "int", offset = "0x1C" }
+                        }
+                    }
+                }
+            };
+
+            var reportMiddle = FieldOffsetDiff.Compare(leftModel, rightMiddleInsert);
+            Assert.True(reportMiddle.HasDrift);
+            Assert.Single(reportMiddle.structs);
+
+            var structDrift = reportMiddle.structs[0];
+            Assert.Equal(3, structDrift.fields.Count);
+
+            // Deterministic order: b, n1, n2
+            var fieldB = structDrift.fields.First(f => f.name == "b");
+            Assert.Equal(FieldOffsetDriftType.Shifted, fieldB.drift);
+            Assert.Equal("0x14", fieldB.left);
+            Assert.Equal("0x1C", fieldB.right);
+            Assert.Equal(FieldOffsetSeverity.BreaksExternalReaders, fieldB.severity);
+
+            var fieldN1 = structDrift.fields.First(f => f.name == "n1");
+            Assert.Equal(FieldOffsetDriftType.Added, fieldN1.drift);
+            Assert.Null(fieldN1.left);
+            Assert.Equal("0x14", fieldN1.right);
+            Assert.Equal(FieldOffsetSeverity.BreaksExternalReaders, fieldN1.severity);
+
+            var fieldN2 = structDrift.fields.First(f => f.name == "n2");
+            Assert.Equal(FieldOffsetDriftType.Added, fieldN2.drift);
+            Assert.Null(fieldN2.left);
+            Assert.Equal("0x18", fieldN2.right);
+            // Must be breaks-external-readers because it's inserted before b (which is at 0x1C)
+            Assert.Equal(FieldOffsetSeverity.BreaksExternalReaders, fieldN2.severity);
+
+            // True addition at the end:
+            // a at 0x10, b at 0x14, endField at 0x18
+            var rightAppendedAtEnd = new JsonDumpModel
+            {
+                types = new List<JsonDumpType>
+                {
+                    new()
+                    {
+                        fullName = "Game.LayoutTest",
+                        size = "0x20",
+                        fields = new List<JsonDumpField>
+                        {
+                            new() { name = "a", type = "int", offset = "0x10" },
+                            new() { name = "b", type = "int", offset = "0x14" },
+                            new() { name = "endField", type = "int", offset = "0x18" }
+                        }
+                    }
+                }
+            };
+
+            var reportEnd = FieldOffsetDiff.Compare(leftModel, rightAppendedAtEnd);
+            Assert.True(reportEnd.HasDrift);
+            Assert.Single(reportEnd.structs);
+            var endFields = reportEnd.structs[0].fields;
+            Assert.Single(endFields);
+            Assert.Equal("endField", endFields[0].name);
+            Assert.Equal(FieldOffsetDriftType.Added, endFields[0].drift);
+            Assert.Equal("0x18", endFields[0].right);
+            Assert.Equal(FieldOffsetSeverity.LeafConsumersMaySurvive, endFields[0].severity);
+        }
+
+        [Fact]
+        public void FieldOffsetDiff_CliProcess_PreservesPositionalPathsNamedDrift()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "cli-drift-compat-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var driftDir = Path.Combine(tempDir, "drift");
+                var leftDir = Path.Combine(tempDir, "left");
+                Directory.CreateDirectory(driftDir);
+                Directory.CreateDirectory(leftDir);
+
+                var emptyDump = new JsonDumpModel
+                {
+                    types = new List<JsonDumpType>
+                    {
+                        new()
+                        {
+                            fullName = "Test.Sample",
+                            size = "0x10",
+                            fields = new List<JsonDumpField>
+                            {
+                                new() { name = "val", type = "int", offset = "0x0" }
+                            }
+                        }
+                    }
+                };
+
+                CreateDumpFixture(driftDir, emptyDump);
+                CreateDumpFixture(leftDir, emptyDump);
+
+                var outDir = Path.Combine(tempDir, "out");
+                Directory.CreateDirectory(outDir);
+
+                // 1. Normal mode with left named "drift": "drift left report-normal1.json" -> ExitCode 0
+                var norm1 = RunDiffCli(driftDir, leftDir, Path.Combine(outDir, "report-normal1.json"));
+                Assert.Equal(0, norm1.exitCode);
+
+                // 2. Normal mode with output named "drift": "left left drift" -> ExitCode 0
+                var driftOutPath = Path.Combine(tempDir, "drift-out-target");
+                var norm2 = RunDiffCli(leftDir, leftDir, driftOutPath);
+                Assert.Equal(0, norm2.exitCode);
+
+                // 3. Drift mode with left named "drift": "--drift drift left report-drift1.json" -> ExitCode 0
+                var drift1 = RunDiffCli("--drift", driftDir, leftDir, Path.Combine(outDir, "report-drift1.json"));
+                Assert.Equal(0, drift1.exitCode);
+
+                // 4. Drift mode with destination named "drift": "--drift left left drift-target" -> ExitCode 0
+                var drift2 = RunDiffCli("--drift", leftDir, leftDir, Path.Combine(tempDir, "drift-target"));
+                Assert.Equal(0, drift2.exitCode);
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
     }
 }

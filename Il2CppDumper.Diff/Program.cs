@@ -15,8 +15,7 @@ namespace Il2CppDumper.Diff
             foreach (var arg in args)
             {
                 if (string.Equals(arg, "--drift", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(arg, "-d", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(arg, "drift", StringComparison.OrdinalIgnoreCase))
+                    string.Equals(arg, "-d", StringComparison.OrdinalIgnoreCase))
                 {
                     isDriftMode = true;
                 }
