@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using static Il2CppDumper.Il2CppConstants;
 
 namespace Il2CppDumper
@@ -24,6 +25,8 @@ namespace Il2CppDumper
         public List<JsonDumpMethod> methods { get; set; } = new();
         public List<JsonDumpEnum> enums { get; set; } = new();
         public List<JsonDumpType> nested { get; set; } = new();
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? size { get; set; }
     }
 
     public class JsonDumpField

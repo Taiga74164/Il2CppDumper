@@ -228,6 +228,70 @@ Il2CppDumper.Diff <left> <right> <output>
 * **Códigos de saída:** `0` = idênticos, `1` = diferenças encontradas, `2` = erro de uso ou entrada.
 * **Esquema:** inclui hashes de proveniência (`dump-metadata.json` quando disponível ou SHA-256 do arquivo em streaming), tipos adicionados/removidos/alterados, métodos com endereços alterados, literais por índice e sumário.
 
+#### 结构体字段偏移漂移报告 (Field offset drift report - `field-offset-drift.json`)
+
+专注于原生结构体内存布局稳定性的专用比对模式：消费两次分析生成的结构化转储（`dump.json`），生成每个结构体的字段偏移漂移报告（`field-offset-drift.json`）。对于原生内存读取器、ReClass 布局以及运行时/外挂访问层而言至关重要（偏移漂移会导致内存指针链在无感知状态下失效，而单纯按名称的类型比对无法直接回答此类问题）。
+
+```
+Il2CppDumper.Diff --drift <left> <right> <output>
+```
+
+* **输入 (Inputs):** 包含 `dump.json` 的目录或直接指向 `dump.json` 的路径。偏移量严格从结构化 `dump.json` 中读取（绝不从 `il2cpp.h` 文本中反向解析）。
+* **退出状态码 (Exit codes):**
+  * `0`: 完全一致（未发现字段偏移漂移）。
+  * `1`: 在一个或多个结构体中发现漂移。
+  * `2`: 参数使用或输入错误。
+* **漂移分类与严重性等级 (Classifications & Severity Map):**
+  * `unchanged`: 从报告中省略（无漂移且大小未变的结构体完全不在报告中出现）。
+  * `shifted`: 字段偏移在不同构建版本间发生改变（`severity: "breaks-external-readers"`）。
+  * `removed`: 字段在基线版本中存在但在新版本中被移除（`severity: "breaks-external-readers"`）。
+  * `added`（末尾追加）: 字段被添加到所有现有字段的偏移之后（`severity: "leaf-consumers-may-survive"`）。
+  * `added`（中间插入）: 字段插入在现有偏移之前或相同位置（`severity: "breaks-external-readers"`）。
+  * `size`: 同时报告结构体级别的尺寸变化；仅尺寸变化但无字段变动的结构体报告空 `fields: []`。
+
+##### 数据模式参考 (Schema reference - `field-offset-drift.json`)
+```json
+{
+  "schemaVersion": 1,
+  "structs": [
+    {
+      "struct": "Ns.Obf",
+      "size": {
+        "left": "0x120",
+        "right": "0x128"
+      },
+      "fields": [
+        {
+          "name": "hp",
+          "left": "0x28",
+          "right": "0x2C",
+          "drift": "shifted",
+          "severity": "breaks-external-readers"
+        },
+        {
+          "name": "mp",
+          "left": "0x2C",
+          "right": null,
+          "drift": "removed",
+          "severity": "breaks-external-readers"
+        }
+      ],
+      "verdict": {
+        "shifted": 1,
+        "removed": 1,
+        "added": 0
+      }
+    }
+  ]
+}
+```
+
+**Português:** Relatório de drift de offset de campos (`FieldOffsetDiff -> field-offset-drift.json`), focado na estabilidade de layout nativo de structs entre dois dumps (`dump.json`). Essencial para leitores nativos de memória, layouts ReClass e rotinas de runtime onde o deslocamento silencioso de offsets quebra cadeias derivadas sem sinalização em diffs de tipos por nome.
+* **Comando:** `Il2CppDumper.Diff --drift <left> <right> <output>`
+* **Entradas:** `dump.json` de ambas as versões (offsets extraídos estritamente do dump estruturado, nunca de texto de `il2cpp.h`).
+* **Códigos de saída:** `0` = sem drift, `1` = drift detectado, `2` = erro de uso ou arquivo.
+* **Classificação e severidade:** `shifted` e `removed` marcam `breaks-external-readers`; adições no final (`added` com offset superior aos existentes) marcam `leaf-consumers-may-survive`; structs sem drift são omitidas; mudanças apenas de tamanho geram `fields: []`.
+
 ### 关于config.json
 
 * `DumpMethod`，`DumpField`，`DumpProperty`，`DumpAttribute`，`DumpFieldOffset`, `DumpMethodOffset`, `DumpTypeDefIndex`

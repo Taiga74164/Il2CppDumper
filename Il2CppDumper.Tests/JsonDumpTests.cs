@@ -54,7 +54,7 @@ namespace Il2CppDumper.Tests
             return (Dictionary<int, Il2CppParameterDefaultValue>)field.GetValue(m)!;
         }
 
-        private static (Metadata metadata, WebAssemblyMemory il2Cpp) CreateSyntheticEnvironment()
+        internal static (Metadata metadata, WebAssemblyMemory il2Cpp) CreateSyntheticEnvironment()
         {
             var m = CreateEmptyMetadata();
             uint strPos = 0;
