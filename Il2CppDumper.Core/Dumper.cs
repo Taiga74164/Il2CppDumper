@@ -281,10 +281,6 @@ namespace Il2CppDumper.Core
                             elf.Reload();
                         }
                     }
-                    else
-                    {
-                        il2Cpp.IsDumped = true;
-                    }
                 }
                 else
                 {

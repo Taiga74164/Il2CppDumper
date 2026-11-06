@@ -344,8 +344,9 @@ namespace Il2CppDumper.Tests
                 Assert.False(result.Success);
                 Assert.NotNull(result.Error);
                 Assert.Contains("ERROR: il2cpp file not supported.", result.Error);
-                Assert.Contains("System.NotSupportedException: ERROR: il2cpp file not supported.", result.Error);
-                Assert.Contains("System.NotSupportedException: ERROR: il2cpp file not supported.", cliStdout);
+                var normalizedError = result.Error.Replace("\r\n", "\n").Trim();
+                var normalizedCli = cliStdout.Replace("\r\n", "\n");
+                Assert.Contains(normalizedError, normalizedCli);
             }
             finally
             {
@@ -741,14 +742,24 @@ namespace Il2CppDumper.Tests
         [Fact]
         public void Program_PromptDumpAddress_ParsesHexAndFallback()
         {
+            // Hex without prefix
             using (var reader = new StringReader("10000000\n"))
             using (var writer = new StringWriter())
             {
                 var addr = Program.PromptDumpAddress(reader, writer);
                 Assert.Equal(0x10000000UL, addr);
-                Assert.Contains("Input dump address or 0 to not set it: ", writer.ToString());
+                Assert.Contains("Input il2cpp dump address or input 0 to force continue:" + Environment.NewLine, writer.ToString());
             }
 
+            // Hex with 0x prefix
+            using (var reader = new StringReader("0x10000000\n"))
+            using (var writer = new StringWriter())
+            {
+                var addr = Program.PromptDumpAddress(reader, writer);
+                Assert.Equal(0x10000000UL, addr);
+            }
+
+            // Zero
             using (var reader = new StringReader("0\n"))
             using (var writer = new StringWriter())
             {
@@ -756,11 +767,19 @@ namespace Il2CppDumper.Tests
                 Assert.Equal(0UL, addr);
             }
 
-            using (var reader = new StringReader("invalid\n"))
+            // Hex zero with 0x prefix
+            using (var reader = new StringReader("0x0\n"))
             using (var writer = new StringWriter())
             {
                 var addr = Program.PromptDumpAddress(reader, writer);
                 Assert.Equal(0UL, addr);
+            }
+
+            // Invalid input throws FormatException (matches base behavior)
+            using (var reader = new StringReader("invalid\n"))
+            using (var writer = new StringWriter())
+            {
+                Assert.Throws<FormatException>(() => Program.PromptDumpAddress(reader, writer));
             }
         }
 
@@ -840,5 +859,265 @@ namespace Il2CppDumper.Tests
             }
         }
 
-}
+        private static byte[] CreateSyntheticElf64()
+        {
+            var data = new byte[4096];
+            using var ms = new MemoryStream(data);
+            using var w = new BinaryWriter(ms);
+
+            // 1. Elf64_Ehdr (64 bytes)
+            w.Write(new byte[] { 0x7F, (byte)'E', (byte)'L', (byte)'F' }); // e_ident[0..3]
+            w.Write((byte)2); // EI_CLASS: ELFCLASS64
+            w.Write((byte)1); // EI_DATA: ELFDATA2LSB
+            w.Write((byte)1); // EI_VERSION: EV_CURRENT
+            w.Write(new byte[9]); // padding
+
+            w.Write((ushort)3); // e_type: ET_DYN
+            w.Write((ushort)183); // e_machine: EM_AARCH64
+            w.Write((uint)1); // e_version: EV_CURRENT
+            w.Write((ulong)0); // e_entry
+            w.Write((ulong)64); // e_phoff = 64
+            w.Write((ulong)0); // e_shoff = 0 (no sections -> CheckDump() returns true)
+            w.Write((uint)0); // e_flags
+            w.Write((ushort)64); // e_ehsize = 64
+            w.Write((ushort)56); // e_phentsize = 56
+            w.Write((ushort)2); // e_phnum = 2 (PT_LOAD and PT_DYNAMIC)
+            w.Write((ushort)64); // e_shentsize = 64
+            w.Write((ushort)0); // e_shnum = 0
+            w.Write((ushort)0); // e_shstrndx = 0
+
+            // 2. Program headers at offset 64
+            // Segment 0: PT_LOAD
+            w.Write((uint)1); // p_type: PT_LOAD
+            w.Write((uint)7); // p_flags: PF_R | PF_W | PF_X
+            w.Write((ulong)0); // p_offset = 0
+            w.Write((ulong)0); // p_vaddr = 0
+            w.Write((ulong)0); // p_paddr = 0
+            w.Write((ulong)4096); // p_filesz = 4096
+            w.Write((ulong)4096); // p_memsz = 4096
+            w.Write((ulong)4096); // p_align = 4096
+
+            // Segment 1: PT_DYNAMIC at offset 120 (64 + 56)
+            w.Write((uint)2); // p_type: PT_DYNAMIC
+            w.Write((uint)6); // p_flags: PF_R | PF_W
+            w.Write((ulong)512); // p_offset = 512
+            w.Write((ulong)512); // p_vaddr = 512
+            w.Write((ulong)512); // p_paddr = 512
+            w.Write((ulong)64); // p_filesz = 64 (4 entries * 16 bytes)
+            w.Write((ulong)64); // p_memsz = 64
+            w.Write((ulong)8); // p_align = 8
+
+            // 3. Dynamic table at offset 512
+            ms.Position = 512;
+            w.Write((long)5); // DT_STRTAB
+            w.Write((ulong)1024);
+            w.Write((long)6); // DT_SYMTAB
+            w.Write((ulong)1024);
+            w.Write((long)4); // DT_HASH
+            w.Write((ulong)1024);
+            w.Write((long)0); // DT_NULL
+            w.Write((ulong)0);
+
+            // 4. Data at offset 1024 (DT_HASH with nbucket=1, nchain=0)
+            ms.Position = 1024;
+            w.Write((uint)1); // nbucket = 1
+            w.Write((uint)0); // nchain = 0
+
+            return data;
+        }
+
+        [Fact]
+        public void Cli_ElfPipeline_AddressZero_PreservesNotDumpedStateAndProducesDumpCs()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-elf-zero-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                var soPath = Path.Combine(fixturesDir, "libil2cpp.so");
+                File.WriteAllBytes(soPath, CreateSyntheticElf64());
+
+                var metaPath = Path.Combine(fixturesDir, "metadata.dat");
+                File.WriteAllBytes(metaPath, CreateMinimalMetadata(version: 29));
+
+                var cliOutDir = Path.Combine(tempDir, "cli-out");
+
+                // Input: 0 (dump address), 800 (CodeRegistration), 900 (MetadataRegistration)
+                var (exitCode, stdout, stderr) = RunCliWithInput(appDir, "0\n800\n900\n", soPath, metaPath, cliOutDir);
+
+                Assert.True(exitCode == 0, $"ExitCode: {exitCode}, stdout: {stdout}, stderr: {stderr}");
+                Assert.Contains("Detected this may be a dump file.", stdout);
+                Assert.Contains("Input il2cpp dump address or input 0 to force continue:", stdout);
+                Assert.Contains("Input CodeRegistration: ", stdout);
+                Assert.Contains("Input MetadataRegistration: ", stdout);
+                Assert.True(File.Exists(Path.Combine(cliOutDir, "dump.cs")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Library_ElfPipeline_ZeroAndNonZeroAddress_ImageBaseIsDumpedReloadAndNoRedirect()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-elf-lib-test-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var soPath = Path.Combine(tempDir, "libil2cpp.so");
+                File.WriteAllBytes(soPath, CreateSyntheticElf64());
+
+                var metaPath = Path.Combine(tempDir, "metadata.dat");
+                File.WriteAllBytes(metaPath, CreateMinimalMetadata(version: 29));
+
+                var outDir = Path.Combine(tempDir, "out");
+
+                // 1. Zero address: IsDumped must stay false, ImageBase must stay 0, finishes successfully with dump.cs
+                var reqZero = new DumpRequest
+                {
+                    ExecutablePath = soPath,
+                    MetadataPath = metaPath,
+                    OutputDirectory = outDir,
+                    DumpAddress = 0UL,
+                    ManualRegistrationPrompt = () => (0x800UL, 0x900UL),
+                    Log = null
+                };
+
+                var resZero = Dumper.Dump(reqZero);
+                Assert.True(resZero.Success, resZero.Error);
+                Assert.True(File.Exists(Path.Combine(outDir, "dump.cs")));
+
+                // 2. Non-zero address with Reload (!NoRedirectedPointer): ImageBase and IsDumped set
+                using (var ms = new MemoryStream(CreateSyntheticElf64()))
+                {
+                    var elf = new Elf64(ms);
+                    Assert.True(elf.CheckDump());
+                    Assert.False(elf.IsDumped);
+                    Assert.Equal(0UL, elf.ImageBase);
+
+                    // Simulate Dump with non-zero address
+                    elf.ImageBase = 0x10000000UL;
+                    elf.IsDumped = true;
+                    elf.Reload();
+
+                    Assert.True(elf.IsDumped);
+                    Assert.Equal(0x10000000UL, elf.ImageBase);
+                    Assert.Equal(0x10000000UL, elf.GetRVA(0x20000000UL));
+                }
+
+                // 3. Non-zero address with NoRedirectedPointer=true
+                using (var ms = new MemoryStream(CreateSyntheticElf64()))
+                {
+                    var elf = new Elf64(ms);
+                    elf.ImageBase = 0x20000000UL;
+                    elf.IsDumped = true;
+                    Assert.True(elf.IsDumped);
+                    Assert.Equal(0x20000000UL, elf.ImageBase);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Library_ExecuteDump_JsonDumpFailure_ReturnsSpecificError()
+        {
+            var env = CreateSyntheticEnvironment(returnType: 0);
+            using var m = env.metadata;
+            using var il = env.il2Cpp;
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-json-err-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                // Create a directory named dump.json to block File.WriteAllText
+                Directory.CreateDirectory(Path.Combine(tempDir, "dump.json"));
+
+                var config = new Config
+                {
+                    GenerateStruct = false,
+                    GenerateDummyDll = false,
+                    GenerateJsonDump = true
+                };
+                var success = Dumper.ExecuteDump(m, il, config, tempDir + Path.DirectorySeparatorChar, out var error);
+                Assert.False(success);
+                Assert.NotNull(error);
+                Assert.Contains("ERROR: Some errors in generating json dump", error);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void Library_JsonDumpFailure_MatchesCliParity()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "il2cpp-cli-json-err-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var appDir = SetupIsolatedApp(tempDir);
+                var configPath = Path.Combine(appDir, "config.json");
+                var appConfig = JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath))!;
+                appConfig.GenerateJsonDump = true;
+                File.WriteAllText(configPath, JsonSerializer.Serialize(appConfig, new JsonSerializerOptions { WriteIndented = true }));
+
+                var fixturesDir = Path.Combine(tempDir, "fixtures");
+                Directory.CreateDirectory(fixturesDir);
+
+                (var wasmPath, var metaPath) = CreateSyntheticFixtures(fixturesDir);
+
+                var cliOutDir = Path.Combine(tempDir, "cli-out");
+                Directory.CreateDirectory(cliOutDir);
+                // Block dump.json by creating directory
+                Directory.CreateDirectory(Path.Combine(cliOutDir, "dump.json"));
+
+                var (cliExitCode, cliStdout, _) = RunCli(appDir, wasmPath, metaPath, cliOutDir);
+
+                var libOutDir = Path.Combine(tempDir, "lib-out");
+                Directory.CreateDirectory(libOutDir);
+                Directory.CreateDirectory(Path.Combine(libOutDir, "dump.json"));
+
+                var request = new DumpRequest
+                {
+                    ExecutablePath = wasmPath,
+                    MetadataPath = metaPath,
+                    OutputDirectory = libOutDir,
+                    Config = new Config { GenerateJsonDump = true },
+                    Log = null
+                };
+
+                var result = Dumper.Dump(request);
+
+                Assert.Equal(1, cliExitCode);
+                Assert.Contains("ERROR: Some errors in generating json dump", cliStdout);
+
+                Assert.False(result.Success);
+                Assert.NotNull(result.Error);
+                Assert.Contains("ERROR: Some errors in generating json dump", result.Error);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
     }
+}

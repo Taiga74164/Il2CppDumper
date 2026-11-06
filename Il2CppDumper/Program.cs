@@ -201,13 +201,9 @@ namespace Il2CppDumper
 
         internal static ulong? PromptDumpAddress(TextReader reader, TextWriter writer)
         {
-            writer.Write("Input dump address or 0 to not set it: ");
+            writer.WriteLine("Input il2cpp dump address or input 0 to force continue:");
             var dumpAddrStr = reader.ReadLine();
-            if (ulong.TryParse(dumpAddrStr, System.Globalization.NumberStyles.HexNumber, null, out var dumpAddr) && dumpAddr != 0)
-            {
-                return dumpAddr;
-            }
-            return 0;
+            return Convert.ToUInt64(dumpAddrStr, 16);
         }
 
         internal static (ulong CodeRegistration, ulong MetadataRegistration)? PromptManualRegistration(TextReader reader, TextWriter writer)
