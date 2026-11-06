@@ -13,7 +13,7 @@ namespace Il2CppDumper
 
         public DecompilerLogger(Action<string> logWarningAction = null)
         {
-            this.logWarningAction = logWarningAction ?? (msg => Console.WriteLine(msg));
+            this.logWarningAction = logWarningAction ?? (msg => CoreLogger.LogWarning(msg));
         }
 
         public virtual void LogWarning(string message)
@@ -31,6 +31,7 @@ namespace Il2CppDumper
         public DecompilerLogger log { get; set; } = new();
         public long CustomAttributeWrittenCount { get; private set; }
         public long CustomAttributeFailedCount { get; private set; }
+        public string ErrorMessage { get; private set; }
 
         public Il2CppDecompiler(Il2CppExecutor il2CppExecutor)
         {
@@ -416,7 +417,8 @@ namespace Il2CppDumper
                 catch (Exception e)
                 {
                     success = false;
-                    Console.WriteLine("ERROR: Some errors in dumping");
+                    ErrorMessage = "ERROR: Some errors in dumping";
+                    CoreLogger.WriteLine("ERROR: Some errors in dumping");
                     writer.Write("/*");
                     writer.Write(e);
                     writer.Write("*/\n}\n");
@@ -436,8 +438,11 @@ namespace Il2CppDumper
                 catch (Exception e)
                 {
                     success = false;
-                    Console.WriteLine("ERROR: Some errors in generating json dump");
-                    Console.WriteLine(e);
+                    ErrorMessage = ErrorMessage != null
+                        ? ErrorMessage + Environment.NewLine + "ERROR: Some errors in generating json dump"
+                        : "ERROR: Some errors in generating json dump";
+                    CoreLogger.WriteLine("ERROR: Some errors in generating json dump");
+                    CoreLogger.WriteLine(e);
                 }
             }
             return success;

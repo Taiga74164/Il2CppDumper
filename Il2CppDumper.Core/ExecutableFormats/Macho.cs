@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -59,7 +59,7 @@ namespace Il2CppDumper
                         var cryptID = ReadUInt32();
                         if (cryptID != 0)
                         {
-                            Console.WriteLine("ERROR: This Mach-O executable is encrypted and cannot be processed.");
+                            CoreLogger.WriteLine("ERROR: This Mach-O executable is encrypted and cannot be processed.");
                         }
                         break;
                 }
@@ -122,8 +122,8 @@ namespace Il2CppDumper
                                 Position = rsubaddr + 14;
                                 buff = buff.Concat(ReadBytes(4)).ToArray();
                                 var codeRegistration = DecodeMov(buff) + subaddr + 22u;
-                                Console.WriteLine("CodeRegistration : {0:x}", codeRegistration);
-                                Console.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
+                                CoreLogger.WriteLine("CodeRegistration : {0:x}", codeRegistration);
+                                CoreLogger.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
                                 Init(codeRegistration, metadataRegistration);
                                 return true;
                             }
@@ -162,8 +162,8 @@ namespace Il2CppDumper
                                 Position = rsubaddr + 14;
                                 buff = buff.Concat(ReadBytes(4)).ToArray();
                                 var codeRegistration = DecodeMov(buff) + subaddr + 26u;
-                                Console.WriteLine("CodeRegistration : {0:x}", codeRegistration);
-                                Console.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
+                                CoreLogger.WriteLine("CodeRegistration : {0:x}", codeRegistration);
+                                CoreLogger.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
                                 Init(codeRegistration, metadataRegistration);
                                 return true;
                             }

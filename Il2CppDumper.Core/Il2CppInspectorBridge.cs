@@ -46,7 +46,7 @@ namespace Il2CppDumper
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to read script.json: {ex.Message}");
+                CoreLogger.WriteLine($"Warning: Failed to read script.json: {ex.Message}");
             }
 
             return null;
@@ -65,13 +65,13 @@ namespace Il2CppDumper
             var scriptJson = Path.Combine(dir, "script.json");
             if (File.Exists(scriptJson))
             {
-                Console.WriteLine($"Found script.json from Il2CppInspectorRedux");
+                CoreLogger.WriteLine($"Found script.json from Il2CppInspectorRedux");
                 var result = TryReadAddresses(scriptJson);
                 if (result.HasValue)
                 {
                     var (codeReg, metadataReg) = result.Value;
-                    Console.WriteLine($"CodeRegistration: 0x{codeReg:X}");
-                    Console.WriteLine($"MetadataRegistration: 0x{metadataReg:X}");
+                    CoreLogger.WriteLine($"CodeRegistration: 0x{codeReg:X}");
+                    CoreLogger.WriteLine($"MetadataRegistration: 0x{metadataReg:X}");
                     return result;
                 }
             }

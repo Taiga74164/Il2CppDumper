@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -430,7 +430,7 @@ namespace Il2CppDumper
                     sb.Append(HeaderConstants.HeaderV29);
                     break;
                 default:
-                    Console.WriteLine($"WARNING: This il2cpp version [{il2Cpp.Version}] does not support generating .h files");
+                    CoreLogger.WriteLine($"WARNING: This il2cpp version [{il2Cpp.Version}] does not support generating .h files");
                     return;
             }
             sb.Append(headerStruct);

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -49,7 +49,7 @@ namespace Il2CppDumper
                 RelocationProcessing();
                 if (CheckProtection())
                 {
-                    Console.WriteLine("ERROR: This file may be protected.");
+                    CoreLogger.WriteLine("ERROR: This file may be protected.");
                 }
             }
         }
@@ -141,8 +141,8 @@ namespace Il2CppDumper
                         metadataRegistration = ReadUInt32();
                     }
                 }
-                Console.WriteLine("CodeRegistration : {0:x}", codeRegistration);
-                Console.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
+                CoreLogger.WriteLine("CodeRegistration : {0:x}", codeRegistration);
+                CoreLogger.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
                 Init(codeRegistration, metadataRegistration);
                 return true;
             }
@@ -177,13 +177,13 @@ namespace Il2CppDumper
             }
             if (codeRegistration > 0 && metadataRegistration > 0)
             {
-                Console.WriteLine("Detected Symbol !");
-                Console.WriteLine("CodeRegistration : {0:x}", codeRegistration);
-                Console.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
+                CoreLogger.WriteLine("Detected Symbol !");
+                CoreLogger.WriteLine("CodeRegistration : {0:x}", codeRegistration);
+                CoreLogger.WriteLine("MetadataRegistration : {0:x}", metadataRegistration);
                 Init(codeRegistration, metadataRegistration);
                 return true;
             }
-            Console.WriteLine("ERROR: No symbol is detected");
+            CoreLogger.WriteLine("ERROR: No symbol is detected");
             return false;
         }
 
@@ -242,7 +242,7 @@ namespace Il2CppDumper
 
         private void RelocationProcessing()
         {
-            Console.WriteLine("Applying relocations...");
+            CoreLogger.WriteLine("Applying relocations...");
             try
             {
                 var reldynOffset = MapVATR(dynamicSection.First(x => x.d_tag == DT_REL).d_un);
@@ -279,7 +279,7 @@ namespace Il2CppDumper
                 //.init_proc
                 if (dynamicSection.Any(x => x.d_tag == DT_INIT))
                 {
-                    Console.WriteLine("WARNING: find .init_proc");
+                    CoreLogger.WriteLine("WARNING: find .init_proc");
                     return true;
                 }
                 //JNI_OnLoad
@@ -290,13 +290,13 @@ namespace Il2CppDumper
                     switch (name)
                     {
                         case "JNI_OnLoad":
-                            Console.WriteLine("WARNING: find JNI_OnLoad");
+                            CoreLogger.WriteLine("WARNING: find JNI_OnLoad");
                             return true;
                     }
                 }
                 if (sectionTable != null && sectionTable.Any(x => x.sh_type == SHT_LOUSER))
                 {
-                    Console.WriteLine("WARNING: find SHT_LOUSER section");
+                    CoreLogger.WriteLine("WARNING: find SHT_LOUSER section");
                     return true;
                 }
             }
