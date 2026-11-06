@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Goldens\**" />
+    <None Include="Goldens\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Il2CppDumper\Il2CppDumper.csproj" />
     <ProjectReference Include="..\Il2CppDumper.Core\Il2CppDumper.Core.csproj" />
     <ProjectReference Include="..\Il2CppDumper.Diff\Il2CppDumper.Diff.csproj" />

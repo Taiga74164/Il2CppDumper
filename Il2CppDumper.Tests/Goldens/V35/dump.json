@@ -1,0 +1,69 @@
+{
+  "types": [
+    {
+      "fullName": "SyntheticNamespace.SyntheticClass",
+      "bases": [],
+      "attributes": [],
+      "fields": [
+        {
+          "name": "syntheticField",
+          "type": "int",
+          "offset": "0xFFFFFFFF",
+          "isStatic": false,
+          "attributes": []
+        }
+      ],
+      "properties": [],
+      "methods": [
+        {
+          "name": "SyntheticMethod",
+          "returnType": "void",
+          "parameters": [
+            {
+              "name": "param1",
+              "type": "[Out] int",
+              "defaultValue": null
+            }
+          ],
+          "isStatic": false,
+          "attributes": []
+        }
+      ],
+      "enums": [],
+      "nested": []
+    },
+    {
+      "fullName": "SyntheticNamespace.SyntheticEnum",
+      "bases": [],
+      "attributes": [],
+      "fields": [
+        {
+          "name": "value__",
+          "type": "int",
+          "offset": "0xFFFFFFFF",
+          "isStatic": false,
+          "attributes": []
+        },
+        {
+          "name": "OptionA",
+          "type": "int",
+          "offset": null,
+          "isStatic": false,
+          "attributes": []
+        }
+      ],
+      "properties": [],
+      "methods": [],
+      "enums": [
+        {
+          "name": "SyntheticEnum",
+          "underlyingType": "int",
+          "constants": {
+            "OptionA": -1
+          }
+        }
+      ],
+      "nested": []
+    }
+  ]
+}
