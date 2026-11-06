@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Il2CppDumper\Il2CppDumper.csproj" />
     <ProjectReference Include="..\Il2CppDumper.Core\Il2CppDumper.Core.csproj" />
+    <ProjectReference Include="..\Il2CppDumper.Diff\Il2CppDumper.Diff.csproj" />
   </ItemGroup>
 
 </Project>

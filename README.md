@@ -151,6 +151,85 @@ Machine-readable dump output (`GenerateJsonDump`) capturing the same structured 
 
 **Português:** Saída de dump legível por máquina (`dump.json`, chave `GenerateJsonDump`), capturando as mesmas informações estruturadas de `dump.cs` em formato JSON (`types`, `fields`, `properties`, `methods`, `enums`, `nested`). Tipos, campos, propriedades e métodos preservam `attributes` declarados (incluindo `[Serializable]` em tipos anotados).
 
+### Diffing (Il2CppDumper.Diff)
+
+Standalone comparison tool consuming two structured dumps (`dump.json` and `script.json` address maps) and emitting a machine-readable delta `dump-diff.json`.
+
+```
+Il2CppDumper.Diff <left> <right> <output>
+```
+
+#### Inputs
+* `<left>`: Directory containing `dump.json` (and optionally `script.json`, `stringliteral-indexed.json`, `dump-metadata.json`) or direct path to `dump.json`.
+* `<right>`: Directory containing `dump.json` (and optionally `script.json`, `stringliteral-indexed.json`, `dump-metadata.json`) or direct path to `dump.json`.
+* `<output>`: Output directory (where `dump-diff.json` will be written) or full path to destination json file.
+* Note: `dump.cs` text is never an input.
+
+#### Exit codes
+* `0`: Identical (no differences found).
+* `1`: Differences found.
+* `2`: Usage / input error.
+
+#### Schema reference (`dump-diff.json`)
+```json
+{
+  "left":  { "source": "...", "sha256": "..." },
+  "right": { "source": "...", "sha256": "..." },
+  "types": {
+    "added": [ "Namespace.TypeName" ],
+    "removed": [ "Namespace.TypeName" ],
+    "changed": [
+      {
+        "type": "Namespace.TypeName",
+        "fields": {
+          "added": [ "f1" ],
+          "removed": [ "f2" ],
+          "changed": [
+            {
+              "field": "f3",
+              "left": { "type": "int", "offset": "0x10" },
+              "right": { "type": "long", "offset": "0x10" }
+            }
+          ]
+        },
+        "methods": {
+          "added": [ "m1" ],
+          "removed": [ "m2" ],
+          "changed": [
+            {
+              "method": "m3",
+              "left": { "returnType": "void", "parameters": "" },
+              "right": { "returnType": "int", "parameters": "" }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "methods": {
+    "addressChanged": [
+      { "type": "Namespace.TypeName", "method": "MethodName", "left": "0x1000", "right": "0x2000" }
+    ],
+    "note": "Optional explanation if script.json is missing on one side"
+  },
+  "literals": {
+    "addedByIndex": [ { "index": 12, "value": "new text" } ],
+    "valueChangedByIndex": [ { "index": 5, "left": "old text", "right": "new text" } ]
+  },
+  "summary": {
+    "addedTypes": 0,
+    "removedTypes": 0,
+    "addressChanges": 0,
+    "valueChanges": 0
+  }
+}
+```
+
+**Português:** Ferramenta autônoma de comparação estruturada (`Il2CppDumper.Diff`), consumindo dois dumps estruturados (`dump.json` e mapas de endereço de `script.json`) e emitindo um delta legível por máquina (`dump-diff.json`).
+* **Entradas:** diretórios ou caminhos diretos para `dump.json` de ambas as versões. `dump.cs` nunca é consumido.
+* **Códigos de saída:** `0` = idênticos, `1` = diferenças encontradas, `2` = erro de uso ou entrada.
+* **Esquema:** inclui hashes de proveniência (`dump-metadata.json` quando disponível ou SHA-256 do arquivo em streaming), tipos adicionados/removidos/alterados, métodos com endereços alterados, literais por índice e sumário.
+
 ### Configuration
 
 All the configuration options are located in `config.json`
