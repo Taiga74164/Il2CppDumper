@@ -994,32 +994,44 @@ namespace Il2CppDumper.Tests
                 Assert.True(resZero.Success, resZero.Error);
                 Assert.True(File.Exists(Path.Combine(outDir, "dump.cs")));
 
-                // 2. Non-zero address with Reload (!NoRedirectedPointer): ImageBase and IsDumped set
-                using (var ms = new MemoryStream(CreateSyntheticElf64()))
+                // 2. Non-zero address with Reload (!NoRedirectedPointer): ImageBase and IsDumped set via Core Dumper.Init
+                var configReload = new Config { NoRedirectedPointer = false };
+                var reqReload = new DumpRequest
                 {
-                    var elf = new Elf64(ms);
-                    Assert.True(elf.CheckDump());
-                    Assert.False(elf.IsDumped);
-                    Assert.Equal(0UL, elf.ImageBase);
+                    DumpAddress = 0x10000000UL
+                };
+                Dumper.Init(soPath, metaPath, configReload, out var metaReload, out var il2CppReload, request: reqReload);
+                using (metaReload)
+                using (il2CppReload)
+                {
+                    Assert.True(il2CppReload.IsDumped);
+                    Assert.Equal(0x10000000UL, il2CppReload.ImageBase);
+                    Assert.Equal(0x10000000UL, il2CppReload.GetRVA(0x20000000UL));
 
-                    // Simulate Dump with non-zero address
-                    elf.ImageBase = 0x10000000UL;
-                    elf.IsDumped = true;
-                    elf.Reload();
-
-                    Assert.True(elf.IsDumped);
-                    Assert.Equal(0x10000000UL, elf.ImageBase);
-                    Assert.Equal(0x10000000UL, elf.GetRVA(0x20000000UL));
+                    // Observable effect of Reload(): segment p_vaddr was shifted by ImageBase
+                    // With Reload: MapVATR(0x10000000UL) resolves to file offset 0
+                    Assert.Equal(0UL, il2CppReload.MapVATR(0x10000000UL));
+                    Assert.Throws<InvalidOperationException>(() => il2CppReload.MapVATR(0UL));
                 }
 
-                // 3. Non-zero address with NoRedirectedPointer=true
-                using (var ms = new MemoryStream(CreateSyntheticElf64()))
+                // 3. Non-zero address with NoRedirectedPointer=true: ImageBase and IsDumped set, Reload skipped
+                var configNoReload = new Config { NoRedirectedPointer = true };
+                var reqNoReload = new DumpRequest
                 {
-                    var elf = new Elf64(ms);
-                    elf.ImageBase = 0x20000000UL;
-                    elf.IsDumped = true;
-                    Assert.True(elf.IsDumped);
-                    Assert.Equal(0x20000000UL, elf.ImageBase);
+                    DumpAddressPrompt = () => 0x20000000UL
+                };
+                Dumper.Init(soPath, metaPath, configNoReload, out var metaNoReload, out var il2CppNoReload, request: reqNoReload);
+                using (metaNoReload)
+                using (il2CppNoReload)
+                {
+                    Assert.True(il2CppNoReload.IsDumped);
+                    Assert.Equal(0x20000000UL, il2CppNoReload.ImageBase);
+                    Assert.Equal(0x10000000UL, il2CppNoReload.GetRVA(0x30000000UL));
+
+                    // Observable effect of omitting Reload: segment p_vaddr was NOT shifted, remains at 0UL
+                    // Without Reload: MapVATR(0UL) resolves to file offset 0
+                    Assert.Equal(0UL, il2CppNoReload.MapVATR(0UL));
+                    Assert.Throws<InvalidOperationException>(() => il2CppNoReload.MapVATR(0x20000000UL));
                 }
             }
             finally
