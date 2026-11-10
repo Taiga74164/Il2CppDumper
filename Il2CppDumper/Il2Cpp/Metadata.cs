@@ -90,6 +90,24 @@ namespace Il2CppDumper
             if (Version >= 38)
             {
                 header = ReadMetadataHeaderV38();
+                ValidateMetadataSection(header.vtableMethods, nameof(header.vtableMethods), sizeof(uint));
+
+                // Unity 6000.5 introduced builds which report metadata version 107,
+                // while keeping the pre-v107 metadata usage layout. Detect those
+                // files before deriving the version-dependent index widths.
+                if (Version == 107 && header.vtableMethods != null && header.vtableMethods.count > 1)
+                {
+                    var savedPosition = Position;
+                    Position = (ulong)header.vtableMethods.offset;
+                    var firstVTableMethodIndex = ReadUInt32();
+                    if (GetEncodedIndexTypeForVersion(firstVTableMethodIndex) ==
+                        (uint)Il2CppMetadataUsage.kIl2CppMetadataUsageFieldInfo)
+                    {
+                        Version = 106;
+                    }
+                    Position = savedPosition;
+                }
+
                 SetupMetadataIndexSizes();
                 imageDefs = ReadMetadataClassArray<Il2CppImageDefinition>(header.images);
                 assemblyDefs = ReadMetadataClassArray<Il2CppAssemblyDefinition>(header.assemblies);
@@ -154,10 +172,10 @@ namespace Il2CppDumper
                 ? ReadMetadataClassArray<Il2CppPropertyDefinition>(header.properties)
                 : ReadMetadataClassArray<Il2CppPropertyDefinition>(header.propertiesOffset, header.propertiesSize);
             interfaceIndices = Version >= 38
-                ? ReadMetadataIndexArray(header.interfaces, typeIndexSize)
+                ? ReadMetadataIndexArray(header.interfaces, GetSectionItemSize(header.interfaces, typeIndexSize))
                 : ReadClassArray<int>(header.interfacesOffset, header.interfacesSize / 4);
             nestedTypeIndices = Version >= 38
-                ? ReadMetadataIndexArray(header.nestedTypes, typeDefinitionIndexSize)
+                ? ReadMetadataIndexArray(header.nestedTypes, GetSectionItemSize(header.nestedTypes, typeDefinitionIndexSize))
                 : ReadClassArray<int>(header.nestedTypesOffset, header.nestedTypesSize / 4);
             eventDefs = Version >= 38
                 ? ReadMetadataClassArray<Il2CppEventDefinition>(header.events)
@@ -169,7 +187,9 @@ namespace Il2CppDumper
                 ? ReadMetadataClassArray<Il2CppGenericParameter>(header.genericParameters)
                 : ReadMetadataClassArray<Il2CppGenericParameter>(header.genericParametersOffset, header.genericParametersSize);
             constraintIndices = Version >= 38
-                ? ReadMetadataIndexArray(header.genericParameterConstraints, typeIndexSize)
+                ? ReadMetadataIndexArray(
+                    header.genericParameterConstraints,
+                    GetSectionItemSize(header.genericParameterConstraints, typeIndexSize))
                 : ReadClassArray<int>(header.genericParameterConstraintsOffset, header.genericParameterConstraintsSize / 4);
             vtableMethods = Version >= 38
                 ? ReadClassArray<uint>((uint)header.vtableMethods.offset, header.vtableMethods.count)
@@ -262,11 +282,58 @@ namespace Il2CppDumper
 
         private T[] ReadMetadataClassArray<T>(Il2CppSectionMetadata section) where T : new()
         {
+            if (typeof(T) == typeof(Il2CppAssemblyDefinition))
+            {
+                return (T[])(object)ReadAssemblyDefinitions(section);
+            }
+
+            ValidateMetadataSection(section, typeof(T).Name, SizeOf(typeof(T)));
             Position = (ulong)section.offset;
             var result = new T[section.count];
             for (var i = 0; i < result.Length; i++)
             {
                 result[i] = ReadMetadataClass<T>();
+            }
+            return result;
+        }
+
+        private Il2CppAssemblyDefinition[] ReadAssemblyDefinitions(Il2CppSectionMetadata section)
+        {
+            // v39 samples differ in whether the trailing moduleToken is present.
+            // The section item size is authoritative for this layout detail.
+            var itemSize = GetSectionItemSize(section, 0);
+            var assemblySizeWithoutModuleToken = 20 + SizeOf(typeof(Il2CppAssemblyNameDefinition));
+            var hasModuleToken = Version >= 38 && itemSize >= assemblySizeWithoutModuleToken + sizeof(uint);
+            ValidateMetadataSection(section, nameof(Il2CppAssemblyDefinition),
+                assemblySizeWithoutModuleToken + (hasModuleToken ? sizeof(uint) : 0));
+            Position = (ulong)section.offset;
+            var result = new Il2CppAssemblyDefinition[section.count];
+
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] = new Il2CppAssemblyDefinition
+                {
+                    imageIndex = ReadInt32()
+                };
+                if (Version >= 24.1)
+                {
+                    result[i].token = ReadUInt32();
+                    result[i].unusedCustomAttributeIndex = ReadInt32();
+                }
+                else
+                {
+                    result[i].customAttributeIndex = ReadInt32();
+                }
+                if (Version >= 20)
+                {
+                    result[i].referencedAssemblyStart = ReadInt32();
+                    result[i].referencedAssemblyCount = ReadInt32();
+                }
+                result[i].aname = ReadClass<Il2CppAssemblyNameDefinition>();
+                if (hasModuleToken)
+                {
+                    result[i].moduleToken = ReadUInt32();
+                }
             }
             return result;
         }
@@ -313,6 +380,8 @@ namespace Il2CppDumper
                 return (T)(object)ReadGeneratedMethodTypeInfo();
             if (typeof(T) == typeof(Il2CppGeneratedMethodToken))
                 return (T)(object)ReadGeneratedMethodToken();
+            if (typeof(T) == typeof(Il2CppRGCTXDefinition))
+                return (T)(object)ReadRGCTXDefinition();
             return ReadClass<T>();
         }
 
@@ -379,11 +448,8 @@ namespace Il2CppDumper
 
         private void SetupMetadataIndexSizes()
         {
-            static int GetIndexSize(int count) => count < byte.MaxValue ? 1 : count < ushort.MaxValue ? 2 : 4;
-            static int GetSectionItemSize(Il2CppSectionMetadata section, int fallback)
-            {
-                return section != null && section.count > 0 ? section.sectionSize / section.count : fallback;
-            }
+            static int GetIndexSize(int count) => count <= byte.MaxValue ? 1 : count <= ushort.MaxValue ? 2 : 4;
+            static int GetV108IndexSize(int count) => count < byte.MaxValue ? 1 : count < ushort.MaxValue ? 2 : 4;
 
             typeDefinitionIndexSize = GetIndexSize(header.typeDefinitions.count);
             genericContainerIndexSize = GetIndexSize(header.genericContainers.count);
@@ -416,26 +482,56 @@ namespace Il2CppDumper
             if (Version >= 108)
             {
                 var methodSpecCount = header.methodSpecsOnGenericType.count + header.genericMethodSpecsOnType.count + header.methodSpecs.count;
-                genericMethodIndexSize = GetIndexSize(methodSpecCount);
-                invokerTableIndexSize = GetSectionItemSize(header.invokerIndices, GetIndexSize(header.invokerIndices.count));
-                adjustorThunkIndexSize = GetIndexSize(header.genericMethodFunctionsDefinitionsWithAdjustor.count);
+                genericMethodIndexSize = GetV108IndexSize(methodSpecCount);
+                invokerTableIndexSize = GetSectionItemSize(header.invokerIndices, GetV108IndexSize(header.invokerIndices.count));
+                adjustorThunkIndexSize = GetV108IndexSize(header.genericMethodFunctionsDefinitionsWithAdjustor.count);
                 var genericMethodSpecOnTypeSize = GetSectionItemSize(header.genericMethodSpecsOnType, 0);
                 var methodSpecOnGenericTypeSize = GetSectionItemSize(header.methodSpecsOnGenericType, 0);
-                genericInstIndexSize = (genericMethodSpecOnTypeSize > 0 ? genericMethodSpecOnTypeSize : methodSpecOnGenericTypeSize) - methodIndexSize;
+                genericInstIndexSize = (genericMethodSpecOnTypeSize > 0 ? genericMethodSpecOnTypeSize : methodSpecOnGenericTypeSize)
+                    - GetV108IndexSize(header.methods.count);
                 if (genericInstIndexSize != 1 && genericInstIndexSize != 2 && genericInstIndexSize != 4)
                     genericInstIndexSize = 4;
                 var genericMethodFunctionsWithAdjustorSize = GetSectionItemSize(header.genericMethodFunctionsDefinitionsWithAdjustor, 0);
                 var genericMethodFunctionsSize = GetSectionItemSize(header.genericMethodFunctionsDefinitions, 0);
-                methodPointerTableIndexSize = genericMethodFunctionsWithAdjustorSize > 0
-                    ? genericMethodFunctionsWithAdjustorSize - (genericMethodIndexSize + invokerTableIndexSize + adjustorThunkIndexSize)
-                    : genericMethodFunctionsSize - (genericMethodIndexSize + invokerTableIndexSize);
+                methodPointerTableIndexSize = genericMethodFunctionsSize > 0
+                    ? genericMethodFunctionsSize - genericMethodIndexSize - invokerTableIndexSize
+                    : genericMethodFunctionsWithAdjustorSize > 0
+                        ? genericMethodFunctionsWithAdjustorSize - (genericMethodIndexSize + invokerTableIndexSize + adjustorThunkIndexSize)
+                        : 4;
                 if (methodPointerTableIndexSize != 1 && methodPointerTableIndexSize != 2 && methodPointerTableIndexSize != 4)
                     methodPointerTableIndexSize = 4;
             }
         }
 
+        private static int GetSectionItemSize(Il2CppSectionMetadata section, int fallback)
+        {
+            if (section != null && (section.count < 0 || section.sectionSize < 0 ||
+                (section.count > 0 && section.sectionSize % section.count != 0)))
+            {
+                throw new InvalidDataException($"Invalid metadata section at 0x{section.offset:X}: size {section.sectionSize}, count {section.count}.");
+            }
+            return section != null && section.count > 0 ? section.sectionSize / section.count : fallback;
+        }
+
+        private void ValidateMetadataSection(Il2CppSectionMetadata section, string name, int itemSize)
+        {
+            if (section.offset < 0 || section.sectionSize < 0 || section.count < 0 ||
+                (ulong)section.offset + (ulong)section.sectionSize > Length)
+            {
+                throw new InvalidDataException($"Metadata section {name} is outside the file: offset 0x{section.offset:X}, size {section.sectionSize}, count {section.count}, file size {Length}.");
+            }
+            if (itemSize < 0 || (long)section.count * itemSize != section.sectionSize)
+            {
+                throw new InvalidDataException($"Metadata v{Version} section {name} has an unsupported layout: offset 0x{section.offset:X}, size {section.sectionSize}, count {section.count}, expected item size {itemSize}.");
+            }
+        }
+
         private int[] ReadMetadataIndexArray(Il2CppSectionMetadata section, int indexSize)
         {
+            indexSize = GetSectionItemSize(section, indexSize);
+            if (indexSize != 1 && indexSize != 2 && indexSize != 4)
+                throw new InvalidDataException($"Invalid metadata index width {indexSize} at 0x{section.offset:X}.");
+            ValidateMetadataSection(section, "index array", indexSize);
             Position = (ulong)section.offset;
             var result = new int[section.count];
             for (var i = 0; i < result.Length; i++)
@@ -665,6 +761,19 @@ namespace Il2CppDumper
             invokerIndex = ReadMetadataIndex(invokerTableIndexSize),
             adjustorThunkIndex = ReadMetadataIndex(adjustorThunkIndexSize)
         };
+
+        private Il2CppRGCTXDefinition ReadRGCTXDefinition()
+        {
+            if (Version >= 108)
+            {
+                return new Il2CppRGCTXDefinition
+                {
+                    type_post29 = ReadByte(),
+                    _data = ReadUInt32()
+                };
+            }
+            return ReadClass<Il2CppRGCTXDefinition>();
+        }
 
         private Il2CppGeneratedMethodTypeInfo ReadGeneratedMethodTypeInfo() => new()
         {
@@ -952,6 +1061,33 @@ namespace Il2CppDumper
             return usage;
         }
 
+        public uint GetAttributeCtorMethodIndex(uint index)
+        {
+            //since v104 the ctor in attributeData is an encoded index, older versions store the method index directly
+            if (Version >= 104)
+            {
+                return GetDecodedMethodIndex(index);
+            }
+            return index;
+        }
+
+        public int GetEnumElementTypeIndex(Il2CppTypeDefinition typeDef)
+        {
+            // New metadata stores the underlying enum type in parentIndex.
+            if (Version >= 35)
+                return typeDef.parentIndex;
+            if (Version > 31)
+            {
+                for (var i = 0; i < typeDef.field_count; i++)
+                {
+                    var field = fieldDefs[typeDef.fieldStart + i];
+                    if (GetStringFromIndex(field.nameIndex) == "value__")
+                        return field.typeIndex;
+                }
+            }
+            return typeDef.elementTypeIndex;
+        }
+
         public uint GetDecodedMethodIndex(uint index)
         {
             if (Version >= 27)
@@ -1005,6 +1141,8 @@ namespace Il2CppDumper
                     return genericMethodIndexSize + methodPointerTableIndexSize + invokerTableIndexSize;
                 if (type == typeof(Il2CppGenericMethodFunctionsDefinitionsWithAdjustor))
                     return genericMethodIndexSize + methodPointerTableIndexSize + invokerTableIndexSize + adjustorThunkIndexSize;
+                if (type == typeof(Il2CppRGCTXDefinition) && Version >= 108)
+                    return 5;
                 if (type == typeof(Il2CppGeneratedMethodTypeInfo))
                     return 12;
                 if (type == typeof(Il2CppGeneratedMethodToken))

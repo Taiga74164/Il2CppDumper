@@ -210,7 +210,7 @@ namespace Il2CppDumper
         [Version(Min = 20)]
         public int referencedAssemblyCount;
         public Il2CppAssemblyNameDefinition aname;
-        [Version(Min = 38)]
+        [Version(Min = 38, Max = 38)]
         public uint moduleToken;
     }
 
@@ -493,6 +493,9 @@ namespace Il2CppDumper
         IL2CPP_RGCTX_DATA_METHOD,
         IL2CPP_RGCTX_DATA_ARRAY,
         IL2CPP_RGCTX_DATA_CONSTRAINED,
+        IL2CPP_RGCTX_DATA_CONSTRAINED_CALL_METHOD,
+        IL2CPP_RGCTX_DATA_FIELD_OFFSET_TYPE,
+        IL2CPP_RGCTX_DATA_FIELD_OFFSET_FIELD,
     }
 
     public class Il2CppRGCTXDefinitionData

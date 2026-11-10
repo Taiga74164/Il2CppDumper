@@ -299,6 +299,17 @@ namespace Il2CppDumper
             return metadata.typeDefs[genericClass.typeDefinitionIndex];
         }
 
+        public Il2CppTypeDefinition GetTypeDefinitionFromTypeIndex(uint typeIndex)
+        {
+            var il2CppType = il2Cpp.types[typeIndex];
+            if (il2CppType.type == Il2CppTypeEnum.IL2CPP_TYPE_GENERICINST)
+            {
+                var genericClass = il2Cpp.MapVATR<Il2CppGenericClass>(il2CppType.data.generic_class);
+                return GetGenericClassTypeDefinition(genericClass);
+            }
+            return GetTypeDefinitionFromIl2CppType(il2CppType);
+        }
+
         public Il2CppTypeDefinition GetTypeDefinitionFromIl2CppType(Il2CppType il2CppType)
         {
             if (il2Cpp.Version >= 27 && il2Cpp.IsDumped)
@@ -485,6 +496,23 @@ namespace Il2CppDumper
             }
         }
 
+        private Il2CppTypeEnum GetEnumUnderlyingTypeEnum(Il2CppTypeDefinition typeDef)
+        {
+            if (metadata.Version <= 31)
+            {
+                return il2Cpp.types[typeDef.elementTypeIndex].type;
+            }
+            for (var i = 0; i < typeDef.field_count; i++)
+            {
+                var fieldDef = metadata.fieldDefs[typeDef.fieldStart + i];
+                if (metadata.GetStringFromIndex(fieldDef.nameIndex) == "value__")
+                {
+                    return il2Cpp.types[fieldDef.typeIndex].type;
+                }
+            }
+            return Il2CppTypeEnum.IL2CPP_TYPE_I4;
+        }
+
         public Il2CppTypeEnum ReadEncodedTypeEnum(BinaryReader reader, out Il2CppType enumType)
         {
             enumType = null;
@@ -494,7 +522,7 @@ namespace Il2CppDumper
                 var enumTypeIndex = reader.ReadCompressedInt32();
                 enumType = il2Cpp.types[enumTypeIndex];
                 var typeDef = GetTypeDefinitionFromIl2CppType(enumType);
-                type = il2Cpp.types[typeDef.elementTypeIndex].type;
+                type = GetEnumUnderlyingTypeEnum(typeDef);
             }
             return type;
         }
